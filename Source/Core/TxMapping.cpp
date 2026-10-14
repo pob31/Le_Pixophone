@@ -32,6 +32,19 @@ float rotation (float raw)     { return 180.0f - raw; }
 float blurFocus (float raw)    { return raw / 127.0f; }
 float blurBias (float raw)     { return raw / 1270.0f; }
 
+float cameraLevel (float cameraLevelRaw, float masterRaw, float cameraOn)
+{
+    return cameraLevelRaw / 127.0f * std::sqrt (masterRaw / 127.0f * cameraOn);
+}
+
+long toDeviceRange (float raw, long minValue, long maxValue, long step)
+{
+    const auto span = static_cast<double> (maxValue - minValue);
+    const auto steps = std::round (span * static_cast<double> (raw) / 127.0 / static_cast<double> (step));
+    const auto value = minValue + static_cast<long> (steps) * step;
+    return value < minValue ? minValue : (value > maxValue ? maxValue : value);
+}
+
 RectSize aspectToSize (float aspectRaw, int projectorRatio)
 {
     // Tx fed integers into `expr $i1 ...`.

@@ -4,6 +4,7 @@
 #include "Media/MediaLibrary.h"
 #include "Render/GpuSurfaceComponent.h"
 #include "Render/RenderEngine.h"
+#include "UI/CameraPanel.h"
 #include "UI/MediaPanel.h"
 #include "UI/ParameterPanel.h"
 
@@ -29,18 +30,20 @@ class ControlPanel final : public juce::Component,
                            private juce::Timer
 {
 public:
-    ControlPanel (RenderEngine& engineIn, OutputWindow& outputIn, ParameterStore& params, MediaLibrary& media)
+    ControlPanel (RenderEngine& engineIn, OutputWindow& outputIn, ParameterStore& params, MediaLibrary& media,
+                  CameraController& camera)
         : engine (engineIn),
           output (outputIn),
           preview (engineIn, SurfaceRole::preview),
           mediaPanel (media),
+          cameraPanel (camera),
           parameterPanel (params)
     {
         title.setText ("Le Pixophone", juce::dontSendNotification);
         title.setFont (juce::FontOptions (22.0f, juce::Font::bold));
         addAndMakeVisible (title);
 
-        subtitle.setText ("P1 - MIX layer and geometry (parameter test bench)", juce::dontSendNotification);
+        subtitle.setText ("P2 - camera (parameter test bench)", juce::dontSendNotification);
         subtitle.setColour (juce::Label::textColourId, juce::Colours::grey);
         addAndMakeVisible (subtitle);
 
@@ -65,6 +68,7 @@ public:
         addAndMakeVisible (statusLabel);
 
         addAndMakeVisible (mediaPanel);
+        addAndMakeVisible (cameraPanel);
 
         parameterView.setViewedComponent (&parameterPanel, false);
         parameterView.setScrollBarsShown (true, false);
@@ -94,6 +98,8 @@ public:
         auto side = area.removeFromRight (sidePanelWidth);
         area.removeFromRight (16);
         mediaPanel.setBounds (side.removeFromTop (MediaPanel::preferredHeight));
+        side.removeFromTop (8);
+        cameraPanel.setBounds (side.removeFromTop (CameraPanel::preferredHeight));
         side.removeFromTop (8);
         parameterView.setBounds (side);
         parameterPanel.setSize (side.getWidth() - parameterView.getScrollBarThickness() - 4,
@@ -166,6 +172,7 @@ private:
     juce::Label subtitle;
     GpuSurfaceComponent preview;
     MediaPanel mediaPanel;
+    CameraPanel cameraPanel;
     ParameterPanel parameterPanel;
     juce::Viewport parameterView;
     juce::Label displayLabel;
@@ -178,15 +185,16 @@ private:
 
 } // namespace
 
-ControlWindow::ControlWindow (RenderEngine& engine, OutputWindow& output, ParameterStore& params, MediaLibrary& media)
+ControlWindow::ControlWindow (RenderEngine& engine, OutputWindow& output, ParameterStore& params, MediaLibrary& media,
+                              CameraController& camera)
     : juce::DocumentWindow ("Le Pixophone", backgroundColour,
                             juce::DocumentWindow::minimiseButton | juce::DocumentWindow::closeButton)
 {
     setUsingNativeTitleBar (true);
-    setContentOwned (new ControlPanel (engine, output, params, media), false);
+    setContentOwned (new ControlPanel (engine, output, params, media, camera), false);
     setResizable (true, false);
     setResizeLimits (960, 600, 4096, 4096);
-    centreWithSize (1360, 800);
+    centreWithSize (1360, 880);
     setVisible (true);
 }
 

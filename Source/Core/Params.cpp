@@ -28,6 +28,13 @@ constexpr ParamDef definitions[] = {
     { ParamId::rotateZ,        "rotateZ",        "Rotate Z",         "Geometry", 0.0f, 360.0f, 180.0f, true },
     { ParamId::aspect,         "aspect",         "Aspect ratio",     "Geometry", 0.0f, 127.0f,  89.0f, true },
     { ParamId::projectorRatio, "projectorRatio", "Projector 4:3",    "Geometry", 0.0f,   1.0f,   0.0f, true },
+    { ParamId::cameraOn,       "cameraOn",       "Camera on",        "Camera",   0.0f,   1.0f,   1.0f, true },
+    { ParamId::cameraLevel,    "cameraLevel",    "Camera level",     "Camera",   0.0f, 127.0f, 127.0f, true },
+    { ParamId::exposure,       "exposure",       "Exposure",         "Camera",   0.0f, 127.0f,  64.0f, true },
+    { ParamId::gain,           "gain",           "Gain",             "Camera",   0.0f, 127.0f,  64.0f, true },
+    { ParamId::exposureAuto,   "exposureAuto",   "Exposure auto",    "Camera",   0.0f,   1.0f,   1.0f, true },
+    { ParamId::gainAuto,       "gainAuto",       "Gain auto",        "Camera",   0.0f,   1.0f,   1.0f, true },
+    { ParamId::whiteBalanceAuto, "whiteBalanceAuto", "White bal. auto", "Camera", 0.0f,  1.0f,   1.0f, true },
     { ParamId::testPattern,    "testPattern",    "Test pattern",     "Output",   0.0f,   1.0f,   0.0f, true },
 };
 

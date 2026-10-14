@@ -8,6 +8,7 @@
 #include <mutex>
 #include <vector>
 
+#include "Camera/CameraSource.h"
 #include "Core/DecodedImage.h"
 #include "Core/Params.h"
 #include "Core/PresetFile.h"
@@ -42,8 +43,9 @@ using SurfaceId = int;
 class RenderEngine final : private juce::Thread
 {
 public:
-    /** The engine reads `params` once per frame (D15). */
-    explicit RenderEngine (ParameterStore& params);
+    /** The engine reads `params` once per frame (D15) and takes the newest
+        frame from `camera` (may be null). Both must outlive the engine. */
+    RenderEngine (ParameterStore& params, CameraSource* camera);
 
     /** Call stopAsync() and wait for its callback first; destroying a
         running engine blocks the message thread (last-resort path). */
@@ -103,11 +105,13 @@ private:
     void setError (const juce::String& message);
 
     ParameterStore& params;
+    CameraSource* camera;
 
     // Render thread only.
     std::unique_ptr<GpuBackend> backend;
     std::unique_ptr<Compositor> compositor;
     std::vector<std::unique_ptr<Surface>> surfaces;
+    CameraFrame cameraFrame;    // recycled between the camera and render threads
     double statsStartMs = 0.0;
     int statsFrames = 0;
 

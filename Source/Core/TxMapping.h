@@ -31,6 +31,12 @@ float rotation (float raw);     // 180 − v, in degrees
 float blurFocus (float raw);    // /127
 float blurBias (float raw);     // /1270
 
+/** `camput lvl`: wclvl/127 × √(master/127 × camOn) (§3.1; √ master — D14). */
+float cameraLevel (float cameraLevelRaw, float masterRaw, float cameraOn);
+
+/** A 0–127 controller value across a device control's range, snapped to its step. */
+long toDeviceRange (float raw, long minValue, long maxValue, long step);
+
 /** The output rectangle's half-size from the aspect slider (0–127) and the
     projector ratio (0 = 16:9, 1 = 4:3), §3.4. */
 struct RectSize

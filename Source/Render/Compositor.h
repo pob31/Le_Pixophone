@@ -5,6 +5,7 @@
 
 #include "sokol_gfx.h"
 
+#include "Camera/CameraSource.h"
 #include "Core/DecodedImage.h"
 #include "Core/LineRamp.h"
 #include "Core/Params.h"
@@ -18,8 +19,8 @@ namespace pixo
     an offscreen "composite" target, which every window then shows. So the
     preview always matches the projector exactly.
 
-    Render thread only, between sg_setup() and sg_shutdown(). P1 draws the
-    MIX layer; later phases add their layers in the §2.2 order. */
+    Render thread only, between sg_setup() and sg_shutdown(). Layers so far,
+    in the §2.2 order: MIX, CAMERA live. */
 class Compositor
 {
 public:
@@ -27,6 +28,10 @@ public:
 
     /** Replaces an image-bank slot (nullptr clears it). */
     void setImage (ImageBank bank, int slot, const DecodedImage* image);
+
+    /** Uploads a new camera frame (through a staging buffer into a persistent
+        texture). Call outside any pass, before renderFrame(). */
+    void uploadCameraFrame (const CameraFrame& frame);
 
     /** Offscreen passes: the MIX buffer, then the composite at the output's
         size (its aspect drives GEM's projection). Call outside any pass. */
@@ -61,8 +66,19 @@ private:
     static void ensureTarget (RenderTarget&, int width, int height, const char* label);
     static void destroy (RenderTarget&);
 
+    struct CompositeState
+    {
+        txmap::Geometry geometry;
+        bool mixVisible = false;
+        float focus = 0.0f;
+        float bias = 0.0f;
+        float cameraAlpha = 0.0f;   // CAMERAOUTPUT's colourRGB alpha (camput lvl)
+    };
+
     void renderMixBuffer (const std::array<float, 4>& weights, float level);
-    void renderComposite (const txmap::Geometry& geometry, bool mixVisible, float focus, float bias);
+    void processCamera();
+    void renderComposite (const CompositeState& state);
+    void drawGemQuad (const sg_view& texture, const txmap::Geometry& g, float alpha);
     void renderTestPattern (double nowMs);
 
     bool zeroToOneDepth = true;
@@ -71,6 +87,7 @@ private:
     sg_pipeline quadPipeline {};        // offscreen, alpha-blended (GEM [alpha])
     sg_pipeline bokehPipeline {};       // offscreen, opaque
     sg_pipeline testPatternPipeline {}; // offscreen
+    sg_pipeline cameraPipeline {};      // offscreen, camera-sized
     sg_pipeline blitPipeline {};        // swapchain
 
     Texture transparentBlack;           // an empty pix_buffer slot
@@ -80,10 +97,20 @@ private:
     RenderTarget mixTarget;             // MIXOUTPUT's gemframebuffer, 1024×1024
     RenderTarget composite;             // the finished picture, output-sized
 
+    // Camera: frames arrive through a staging buffer into `cameraRaw`; the
+    // camera pass turns that into `cameraLive` (the CAMERA chain, §2.7).
+    sg_buffer cameraStaging {};
+    std::size_t cameraStagingSize = 0;
+    Texture cameraRaw;
+    RenderTarget cameraLive;
+    bool cameraFrameWaiting = false;
+    bool cameraHasPicture = false;
+
     txmap::GeometryMapper geometryMapper;
     std::array<LineRamp, 8> geometryRamps { LineRamp (300), LineRamp (300), LineRamp (300), LineRamp (300),
                                             LineRamp (300), LineRamp (300), LineRamp (300), LineRamp (300) };
     LineRamp mixLevelRamp { 100 };
+    LineRamp cameraLevelRamp { 100 };   // CAMERAOUTPUT: lvl → $1 100 → line
 };
 
 } // namespace pixo

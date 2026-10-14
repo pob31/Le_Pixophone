@@ -2,6 +2,7 @@
 
 #include "App/ControlWindow.h"
 #include "App/OutputWindow.h"
+#include "Camera/CameraController.h"
 #include "Core/Params.h"
 #include "Media/MediaLibrary.h"
 #include "Render/RenderEngine.h"
@@ -69,13 +70,16 @@ public:
         params = std::make_unique<ParameterStore>();
         applyCommandLine (commandLine, *params);
 
-        renderEngine = std::make_unique<RenderEngine> (*params);
+        camera = createPlatformCameraSource();
+
+        renderEngine = std::make_unique<RenderEngine> (*params, camera.get());
         renderEngine->start();
 
         media = std::make_unique<MediaLibrary> (*renderEngine, *settings.getUserSettings());
+        cameraController = std::make_unique<CameraController> (*camera, *params, *settings.getUserSettings());
 
         outputWindow = std::make_unique<OutputWindow> (*renderEngine);
-        controlWindow = std::make_unique<ControlWindow> (*renderEngine, *outputWindow, *params, *media);
+        controlWindow = std::make_unique<ControlWindow> (*renderEngine, *outputWindow, *params, *media, *cameraController);
 
         // The original loads preset 0 at start-up (loadbang, §3.3).
         media->loadPreset (ImageBank::mix, 0);
@@ -104,7 +108,9 @@ public:
         controlWindow.reset();
         outputWindow.reset();
         media.reset();
+        cameraController.reset();   // closes the camera
         renderEngine.reset();
+        camera.reset();             // after the engine, which reads its frames
         params.reset();
         settings.saveIfNeeded();
 
@@ -119,7 +125,9 @@ private:
     std::unique_ptr<juce::FileLogger> logger;
     juce::ApplicationProperties settings;
     std::unique_ptr<ParameterStore> params;
+    std::unique_ptr<CameraSource> camera;
     std::unique_ptr<RenderEngine> renderEngine;
+    std::unique_ptr<CameraController> cameraController;
     std::unique_ptr<MediaLibrary> media;
     std::unique_ptr<OutputWindow> outputWindow;
     std::unique_ptr<ControlWindow> controlWindow;

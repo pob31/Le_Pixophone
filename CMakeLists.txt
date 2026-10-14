@@ -114,18 +114,23 @@ target_sources(LePixophone PRIVATE
     Source/Main.cpp
     Source/App/ControlWindow.cpp
     Source/App/OutputWindow.cpp
+    Source/Camera/CameraController.cpp
+    Source/Camera/CameraSource.cpp
     Source/Media/MediaLibrary.cpp
     Source/Render/Compositor.cpp
     Source/Render/GpuSurfaceComponent.cpp
     Source/Render/RenderEngine.cpp
+    Source/UI/CameraPanel.cpp
     Source/UI/MediaPanel.cpp
     Source/UI/ParameterPanel.cpp
     ${PIXO_SHADER_HEADERS})
 
 if(WIN32)
     target_sources(LePixophone PRIVATE
+        Source/Camera/Win/MediaFoundationCamera.cpp
         Source/Render/Win/D3D11Backend.cpp
         Source/Render/Win/NativeSurfaceWindow.cpp)
+    target_link_libraries(LePixophone PRIVATE mfplat mf mfreadwrite mfuuid)
 endif()
 
 target_include_directories(LePixophone PRIVATE

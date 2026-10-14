@@ -32,6 +32,16 @@ enum class ParamId : int
     aspect,
     projectorRatio, // 0 = 16:9 projector, 1 = 4:3 projector
 
+    // CAMERA (§2.7, §3.1). Exposure and gain are played live (D17), 0–127
+    // across the device's range.
+    cameraOn,
+    cameraLevel,        // Tx `wclvl`
+    exposure,
+    gain,
+    exposureAuto,       // the automatics are not in the original (the PS3 Eye
+    gainAuto,           // ran manual); webcams start in auto
+    whiteBalanceAuto,
+
     // Output utilities (not in the original)
     testPattern,    // 0/1: show the alignment test pattern instead of the picture
 

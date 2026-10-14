@@ -75,6 +75,19 @@ void testGeometryFormulas()
     CHECK_NEAR (txmap::blurBias (127.0f), 0.1, 1e-6);
 }
 
+void testCameraMapping()
+{
+    CHECK_NEAR (txmap::cameraLevel (127.0f, 127.0f, 1.0f), 1.0, 1e-6);
+    CHECK_NEAR (txmap::cameraLevel (127.0f, 31.75f, 1.0f), 0.5, 1e-6);   // √ master
+    CHECK_NEAR (txmap::cameraLevel (127.0f, 127.0f, 0.0f), 0.0, 1e-6);   // camera off
+
+    // Windows exposure is in log2 seconds, e.g. -13..-1 step 1.
+    CHECK (txmap::toDeviceRange (0.0f, -13, -1, 1) == -13);
+    CHECK (txmap::toDeviceRange (127.0f, -13, -1, 1) == -1);
+    CHECK (txmap::toDeviceRange (63.5f, -13, -1, 1) == -7);
+    CHECK (txmap::toDeviceRange (64.0f, 0, 255, 5) % 5 == 0);
+}
+
 void testAspect()
 {
     struct Preset { const char* name; float slider; double ratio; };
@@ -201,6 +214,7 @@ int main()
 {
     testMix();
     testGeometryFormulas();
+    testCameraMapping();
     testAspect();
     testGeometryMapperQuirk();
     testGemSpace();

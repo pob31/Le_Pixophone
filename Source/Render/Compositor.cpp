@@ -91,13 +91,22 @@ bool Compositor::initialise (std::string& error)
     }
 
     {
+        sg_pipeline_desc desc {};
+        desc.shader = sg_make_shader (camera_process_shader_desc (backend));
+        desc.colors[0].pixel_format = SG_PIXELFORMAT_RGBA8;
+        desc.depth.pixel_format = SG_PIXELFORMAT_NONE;
+        desc.label = "camera-process";
+        cameraPipeline = sg_make_pipeline (&desc);
+    }
+
+    {
         sg_pipeline_desc desc {};      // swapchain: environment defaults (BGRA8, no depth)
         desc.shader = sg_make_shader (blit_shader_desc (backend));
         desc.label = "blit";
         blitPipeline = sg_make_pipeline (&desc);
     }
 
-    for (auto pipeline : { quadPipeline, bokehPipeline, testPatternPipeline, blitPipeline })
+    for (auto pipeline : { quadPipeline, bokehPipeline, testPatternPipeline, cameraPipeline, blitPipeline })
     {
         if (sg_query_pipeline_state (pipeline) != SG_RESOURCESTATE_VALID)
         {
@@ -207,6 +216,80 @@ void Compositor::setImage (ImageBank bank, int slot, const DecodedImage* image)
         mixSlots[static_cast<std::size_t> (slot)] = makeTexture (*image);
 }
 
+void Compositor::uploadCameraFrame (const CameraFrame& frame)
+{
+    if (frame.width <= 0 || frame.height <= 0)
+        return;
+
+    const auto bytes = static_cast<std::size_t> (frame.width) * static_cast<std::size_t> (frame.height) * 4;
+
+    if (bytes != cameraStagingSize || frame.width != cameraRaw.width || frame.height != cameraRaw.height)
+    {
+        if (cameraStaging.id != SG_INVALID_ID)
+            sg_destroy_buffer (cameraStaging);
+
+        destroy (cameraRaw);
+
+        sg_buffer_desc stagingDesc {};
+        stagingDesc.usage.staging_buffer = true;
+        stagingDesc.usage.write_transient = true;
+        stagingDesc.usage.copy_src = true;
+        stagingDesc.size = bytes;
+        stagingDesc.label = "camera-staging";
+        cameraStaging = sg_make_buffer (&stagingDesc);
+        cameraStagingSize = bytes;
+
+        sg_image_desc imageDesc {};
+        imageDesc.usage.copy_dst = true;
+        imageDesc.width = frame.width;
+        imageDesc.height = frame.height;
+        imageDesc.pixel_format = SG_PIXELFORMAT_RGBA8;     // BGRA bytes: swizzled in camera_fs
+        imageDesc.label = "camera-raw";
+        cameraRaw.image = sg_make_image (&imageDesc);
+
+        sg_view_desc viewDesc {};
+        viewDesc.texture.image = cameraRaw.image;
+        cameraRaw.view = sg_make_view (&viewDesc);
+        cameraRaw.width = frame.width;
+        cameraRaw.height = frame.height;
+
+        ensureTarget (cameraLive, frame.width, frame.height, "camera-live");
+    }
+
+    sg_write_buffer_desc write {};
+    write.src.data = { frame.bgra.data(), bytes };
+    write.dst.buffer = cameraStaging;
+    sg_write_buffer_transient (&write);
+
+    sg_copy_buffer_to_image_desc copy {};
+    copy.src.buffer = cameraStaging;
+    copy.src.bytes_per_row = frame.width * 4;
+    copy.src.bytes_per_slice = static_cast<int> (bytes);
+    copy.dst.image = cameraRaw.image;
+    copy.size = { frame.width, frame.height, 1 };
+    sg_copy_buffer_to_image (&copy);
+
+    cameraFrameWaiting = true;
+}
+
+void Compositor::processCamera()
+{
+    auto pass = offscreenPass (cameraLive.colorView, 0.0f, 0.0f, 0.0f, 1.0f, "camera-process");
+    sg_begin_pass (&pass);
+    sg_apply_pipeline (cameraPipeline);
+
+    sg_bindings bindings {};
+    bindings.views[VIEW_tex] = cameraRaw.view;
+    bindings.samplers[SMP_smp] = linearClamp;
+    sg_apply_bindings (&bindings);
+
+    sg_draw (0, 3, 1);
+    sg_end_pass();
+
+    cameraFrameWaiting = false;
+    cameraHasPicture = true;
+}
+
 //==============================================================================
 void Compositor::renderFrame (const ParameterStore::Snapshot& params, const CompatFlags& compat,
                               double nowMs, int width, int height)
@@ -245,9 +328,22 @@ void Compositor::renderFrame (const ParameterStore::Snapshot& params, const Comp
     // blurMode 0 forces bias to 0 (§2.4). Until the camera exists (P2) the
     // depth texture is black, as with the camera off.
     const auto blurMode = static_cast<int> (params[ParamId::mixBlurMode]);
-    const auto bias = blurMode == 0 ? 0.0f : txmap::blurBias (params[ParamId::mixBias]);
 
-    renderComposite (geometry, mixVisible, txmap::blurFocus (params[ParamId::mixFocus]), bias);
+    CompositeState state;
+    state.geometry = geometry;
+    state.mixVisible = mixVisible;
+    state.focus = txmap::blurFocus (params[ParamId::mixFocus]);
+    state.bias = blurMode == 0 ? 0.0f : txmap::blurBias (params[ParamId::mixBias]);
+
+    // CAMERA (§2.7): process new frames, then the live layer's level.
+    if (cameraFrameWaiting)
+        processCamera();
+
+    state.cameraAlpha = cameraLevelRamp.update (txmap::cameraLevel (params[ParamId::cameraLevel],
+                                                                     params[ParamId::masterLevel],
+                                                                     params[ParamId::cameraOn]), nowMs);
+
+    renderComposite (state);
 }
 
 void Compositor::renderMixBuffer (const std::array<float, 4>& weights, float level)
@@ -284,12 +380,13 @@ void Compositor::renderMixBuffer (const std::array<float, 4>& weights, float lev
     sg_end_pass();
 }
 
-void Compositor::renderComposite (const txmap::Geometry& g, bool mixVisible, float focus, float bias)
+void Compositor::renderComposite (const CompositeState& state)
 {
+    const auto& g = state.geometry;
     auto pass = offscreenPass (composite.colorView, 0.0f, 0.0f, 0.0f, 1.0f, "composite");
     sg_begin_pass (&pass);
 
-    if (mixVisible)
+    if (state.mixVisible)
     {
         const auto aspect = static_cast<float> (composite.width) / static_cast<float> (composite.height);
         const auto mvp = gemProjection (aspect, zeroToOneDepth) * gemModel (g.tx, g.ty, g.tz, g.rx, g.ry, g.rz);
@@ -304,15 +401,41 @@ void Compositor::renderComposite (const txmap::Geometry& g, bool mixVisible, flo
 
         const auto vsParams = quadParams (mvp, g.width, g.height);
         bokeh_params_t bokehParams {};
-        bokehParams.focus_bias[0] = focus;
-        bokehParams.focus_bias[1] = bias;
+        bokehParams.focus_bias[0] = state.focus;
+        bokehParams.focus_bias[1] = state.bias;
 
         sg_apply_uniforms (UB_vs_params, SG_RANGE (vsParams));
         sg_apply_uniforms (UB_bokeh_params, SG_RANGE (bokehParams));
         sg_draw (0, 4, 1);
     }
 
+    // CAMERAOUTPUT: the live camera on the output quad, not HEAD-gated (§2.2).
+    if (cameraHasPicture && state.cameraAlpha > 0.0f)
+        drawGemQuad (cameraLive.textureView, g, state.cameraAlpha);
+
     sg_end_pass();
+}
+
+void Compositor::drawGemQuad (const sg_view& texture, const txmap::Geometry& g, float alpha)
+{
+    const auto aspect = static_cast<float> (composite.width) / static_cast<float> (composite.height);
+    const auto mvp = gemProjection (aspect, zeroToOneDepth) * gemModel (g.tx, g.ty, g.tz, g.rx, g.ry, g.rz);
+
+    sg_apply_pipeline (quadPipeline);
+
+    sg_bindings bindings {};
+    bindings.views[VIEW_tex] = texture;
+    bindings.samplers[SMP_smp] = linearClamp;
+    sg_apply_bindings (&bindings);
+
+    const auto vsParams = quadParams (mvp, g.width, g.height);
+    fs_params_t fsParams {};
+    fsParams.color[0] = fsParams.color[1] = fsParams.color[2] = 1.0f;
+    fsParams.color[3] = alpha;
+
+    sg_apply_uniforms (UB_vs_params, SG_RANGE (vsParams));
+    sg_apply_uniforms (UB_fs_params, SG_RANGE (fsParams));
+    sg_draw (0, 4, 1);
 }
 
 void Compositor::renderTestPattern (double nowMs)

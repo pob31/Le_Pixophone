@@ -5,6 +5,7 @@
 namespace pixo
 {
 
+class CameraController;
 class MediaLibrary;
 class OutputWindow;
 class ParameterStore;
@@ -16,7 +17,8 @@ class RenderEngine;
 class ControlWindow final : public juce::DocumentWindow
 {
 public:
-    ControlWindow (RenderEngine& engine, OutputWindow& output, ParameterStore& params, MediaLibrary& media);
+    ControlWindow (RenderEngine& engine, OutputWindow& output, ParameterStore& params, MediaLibrary& media,
+                   CameraController& camera);
 
     void closeButtonPressed() override;
 

@@ -5,8 +5,8 @@ audiovisual instrument. A camera on an enlarger films a light table, and the
 live image masks a mix of pinhole photographs. This repo ports the original Pure
 Data + GEM system (patch114, ca. 2010) to one native application.
 
-Status: **P1 done** (MIX layer, geometry, presets, parameter test bench;
-Windows only). Next: P2 (camera).
+Status: **P2 in progress**: camera capture and the live layer work (Windows
+only). Next: the camera chain and depth buffers, then STRIP.
 
 ## Build
 
@@ -29,11 +29,13 @@ Running: the media root (the old `Le_Pixophone` folder with `presets/`,
 `%APPDATA%\Le Pixophone\Le Pixophone.settings`; `PIXO_MEDIA_ROOT` is the
 fallback. `--set key=value` (repeatable) sets any parameter at start-up, by
 its `ParamDef` key (e.g. `--set mixX=64 --set aspect=113`). Use it for
-reproducible visual checks.
+reproducible visual checks. The camera device and mode chosen in the panel
+are saved there too. This laptop lists an NDI virtual camera first, which
+sends nothing, so the default skips virtual and IR cameras (D26).
 
 ## Where things are decided
 
-- `Documentation/PIXOPHONE-PLAN.md` — decision records (D1–D25; **D26 is the
+- `Documentation/PIXOPHONE-PLAN.md` — decision records (D1–D26; **D27 is the
   next free number**), architecture and source layout, phases P0–P5, research
   topics R1–R5, known issues, next steps. It wins over anything else here.
 - `Documentation/PD114-ANALYSIS.md` — reverse-engineered spec of the original:

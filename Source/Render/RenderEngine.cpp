@@ -59,9 +59,10 @@ struct RenderEngine::Request
 };
 
 //==============================================================================
-RenderEngine::RenderEngine (ParameterStore& paramsIn)
+RenderEngine::RenderEngine (ParameterStore& paramsIn, CameraSource* cameraIn)
     : juce::Thread ("Pixophone render"),
-      params (paramsIn)
+      params (paramsIn),
+      camera (cameraIn)
 {
 }
 
@@ -360,6 +361,9 @@ bool RenderEngine::renderFrame (double timeSeconds)
         outputWidth = 1280;
         outputHeight = 720;
     }
+
+    if (camera != nullptr && camera->takeLatestFrame (cameraFrame))
+        compositor->uploadCameraFrame (cameraFrame);
 
     compositor->renderFrame (params.snapshot(), params.compat, timeSeconds * 1000.0, outputWidth, outputHeight);
 

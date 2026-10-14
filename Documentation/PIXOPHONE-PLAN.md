@@ -1,12 +1,12 @@
 # Le Pixophone (new) — plan and decisions
 
-Status: **P1 Stills done** (2026-10-14); next is P2. The reverse-engineered
+Status: **P2 Camera in progress** (2026-10-14): capture and the live layer work. The reverse-engineered
 spec of the original is `PD114-ANALYSIS.md`; this file records what we
 decided, the architecture, and the order of work.
 
 ## Decision records
 
-Numbered D1…; D26 is the next free number. A decision is changed by adding a
+Numbered D1…; D27 is the next free number. A decision is changed by adding a
 new record that supersedes it, not by editing the old one.
 
 | # | Decision | Why |
@@ -36,6 +36,7 @@ new record that supersedes it, not by editing the old one.
 | D23 | **Render once, show everywhere.** The `Compositor` renders each frame into an offscreen composite at the output window's size, whose aspect drives GEM's projection. Every window (output, previews) then blits that composite, letterboxed. Layers render into their own buffers first (MIX: 1024², as `gemframebuffer`). | The preview is exactly what the projector shows, and the picture is rendered only once whatever the number of windows. |
 | D24 | **Pure core + tests; scriptable start.** Logic that is pure maths lives in `Source/Core/` (no JUCE): parameters, the Tx formulas, GEM space, Pd `line` ramps, preset parsing. It is unit-tested against the spec by `pixo_core_tests` (CTest). The media root lives in the settings file (`%APPDATA%\Le Pixophone\Le Pixophone.settings`), with `PIXO_MEDIA_ROOT` as a fallback. `--set key=value` sets any parameter at start-up. | The formulas are where faithfulness is won or lost, so they're tested without a GPU. Scripted starts make visual checks reproducible: P1's blend was verified this way within 1.4/255 of a model of GEM's blending. |
 | D25 | **STRIP panoramas load in one piece.** A strip preset may list one panorama file, or the old four 2048 px parts, which are joined side by side (file order = left to right) into one image while loading. The renderer draws that one texture on one quad of 106.4 × 8 GEM units, the same geometry as the original's four `rectangle 13.303 4` (centre at posH − 39.9), so posH/posZ keep their range and feel and there are no seams. Panoramas are limited by the GPU (`sg_query_limits().max_image_size_2d`, 16384 px on D3D11); wider ones are scaled down to fit at load. | Author: the four-part split only existed because textures were limited to 2048 px. Like the network split (D15), it was a hardware workaround, not a feature. |
+| D26 | **Camera capture (Windows): Media Foundation, asynchronous.** A `CameraSource` interface (pure C++), one backend per OS. Windows uses an async source reader: frames arrive by callback, a session thread opens the device and applies control changes, and closing flushes with a 1 s deadline. Media Foundation converts the device's native mode (MJPG/YUY2/NV12) to RGB32 on the CPU for now; hardware decoding comes with D22. Default device: a real USB camera rather than virtual (NDI/OBS) or infrared ones; the user's choice and mode are remembered. Default mode: closest to VGA @ 30 fps, like the PS3 Eye. Frames reach the GPU through a staging buffer into a persistent texture, only when a new one arrives. | The first, synchronous version hung on quit with the NDI virtual camera, which sends nothing, because its blocking read never returned. The async reader cannot block. Measured: 640×480 NV12 @ 29.8 fps on the integrated camera; quit in ≈ 0.5 s. |
 
 ## Architecture (proposed)
 
@@ -94,7 +95,7 @@ against the spec's formulas.
 |---|---|---|
 | P0 Scaffold | CMake + JUCE submodule + vendored sokol + sokol-shdc build step; control window and borderless output window on a chosen display, both cleared by sokol (D3D11); CLAUDE.md build section | `cmake --build` makes an exe that opens both windows at vsync. **Done 2026-10-14**: Debug and Release build with zero warnings; output and preview render the sokol-shdc test pattern at 60 fps (D3D11 on the Intel Arc); `tools/bandmeter.py` measures the pattern's 15.0 cycles; clean quit (D20) |
 | P1 Stills | Parameter store + auto-generated debug panel; media root + preset loader; GEM camera space and geometry (§2.1, §3.4); MIX layer with XY weights; output quad | Loading `mixpreset0` and moving X/Y reproduces the old MIX blend. **Done 2026-10-14**: 76 unit checks pass; preset 0 loads at start-up as in the original; blends at (64, 64) and (100, 30) match a model of GEM's blending within 1.4/255; rotation, translation and aspect behave as the formulas predict; Debug runs clean under sokol validation |
-| P2 Camera | `CameraSource` (first backend: Windows) with manual exposure/gain/fps; camera chain; depth textures; bokeh shader port with blurModes; STRIP layer; CAMERA live layer | The hand-over-light-table mask works on MIX and STRIP |
+| P2 Camera | `CameraSource` (first backend: Windows) with manual exposure/gain/fps; camera chain; depth textures; bokeh shader port with blurModes; STRIP layer; CAMERA live layer | The hand-over-light-table mask works on MIX and STRIP. **Slice 1 done 2026-10-14**: capture (D26), camera panel, exposure/gain/auto parameters, live CAMERA layer on the output quad (camput lvl, 100 ms). Next: the camera chain and depth buffers, then STRIP (D25), then auto-invert |
 | P3 Loops and pads | Loop recorder (camcap1/2) with N/R capacity in system RAM (D16); SAMPLER players with transport in the engine; PAD layer with modes 0–3 incl. camera-loop pads | With the legacy preset (128 @ 15 fps), all §2.6 pad modes and §3.3 sampler transport behave as specified; larger N/R keep the same feel |
 | P4 Control | Real control UI; BCR2000/nanoPAD/FBV profiles with feedback and echo suppression; footswitch matrix; soft takeover; Firmata touchpads; mix loop; auto-invert; refresh modes; M_Reset | A show can be played from the controllers without touching the mouse |
 | P5 Platforms | macOS (Metal, AVFoundation) and Linux (GL, V4L2) backends; packaging | Same feature set on all three |
@@ -209,7 +210,16 @@ against the spec's formulas.
 - **R3 — Camera capture library**: a library such as openpnp-capture (Media
   Foundation / AVFoundation / V4L2, with exposure and gain properties) vs
   native per-OS backends. JUCE's `CameraDevice` has no manual
-  exposure/gain, so it is ruled out for the main path.
+  exposure/gain, so it is ruled out for the main path. **Chosen for Windows:
+  our own Media Foundation backend (D26).**
+  - Finding (2026-10-14): Windows' generic UVC exposure control
+    (`IAMCameraControl`) works in whole log₂-seconds steps. The integrated
+    camera offers −12..−3 (1/4096 s … 1/8 s): about 10 steps, far too coarse
+    for playing scan lines (D17), and it has no gain control at all.
+  - So the real camera needs finer control, through either Windows'
+    extended camera controls (exposure in 100 ns units, for cameras that
+    support them) or the vendor's SDK (The Imaging Source IC4, Basler
+    pylon). Add it to the R1 bench test.
 - **R4 — Frame pacing**: output vsync on the projector display,
   camera-to-photon latency target, behaviour when the camera, capture (D12)
   and projector rates differ. **Hybrid GPUs**:

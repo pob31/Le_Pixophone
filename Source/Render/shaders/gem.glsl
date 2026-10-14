@@ -140,3 +140,21 @@ void main() {
 @end
 
 @program blit blit_vs blit_fs
+
+// ---------------------------------------------------------------------------
+// Camera input: the capture's BGRA bytes were uploaded as RGBA8, so swap red
+// and blue; the capture's alpha byte is undefined, use 1. The CAMERA chain
+// (§2.7: invert, levels, motion blur, colour-alpha, mask colour) grows here.
+@fs camera_fs
+layout(binding=0) uniform texture2D tex;
+layout(binding=0) uniform sampler smp;
+
+in vec2 uv;
+out vec4 frag_color;
+
+void main() {
+    frag_color = vec4(texture(sampler2D(tex, smp), uv).bgr, 1.0);
+}
+@end
+
+@program camera_process blit_vs camera_fs
