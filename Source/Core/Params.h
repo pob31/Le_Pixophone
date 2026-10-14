@@ -22,6 +22,14 @@ enum class ParamId : int
     mixBias,
     mixBlurMode,
 
+    // STRIP (§2.5, §3.1)
+    stripPosition,      // 0–800 (14-bit NRPN 223), posH = (h − 75.59) / 8.15748
+    stripZoom,          // 0–127, posZ = −4 − z/127·8
+    stripLevel,
+    stripFocus,
+    stripBias,
+    stripBlurMode,
+
     // GEOMETRY (§2.8, §3.4)
     translateX,
     translateY,

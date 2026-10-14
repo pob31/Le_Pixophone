@@ -20,7 +20,7 @@ public:
 
     void resized() override;
 
-    static constexpr int preferredHeight = 214;
+    static constexpr int preferredHeight = 262;
 
 private:
     void refresh();
@@ -34,6 +34,10 @@ private:
     juce::Label presetLabel;
     juce::Slider presetSlider { juce::Slider::IncDecButtons, juce::Slider::TextBoxLeft };
     juce::TextButton loadButton { "Load" };
+    juce::Label stripLabel;
+    juce::Slider stripSlider { juce::Slider::IncDecButtons, juce::Slider::TextBoxLeft };
+    juce::TextButton stripLoadButton { "Load" };
+    juce::Label stripStateLabel;
     std::array<juce::Label, 4> slotLabels;
     juce::Label statusLabel;
     std::unique_ptr<juce::FileChooser> chooser;

@@ -74,6 +74,8 @@ private:
         float bias = 0.0f;
         sg_view mixDepth {};            // the camera "depth" the MIX bokeh reads (§2.4)
         bool mixDepthInverted = false;  // compat realInvertedDepth on tex unit 3
+        bool stripVisible = false;      // STRIPHEAD
+        float stripAlpha = 0.0f;
         float cameraAlpha = 0.0f;       // CAMERAOUTPUT's colourRGB alpha (camput lvl)
         std::array<float, 3> maskColor {};
         bool maskOn = true;             // [pix_color] on, i.e. not bypassed
@@ -83,6 +85,7 @@ private:
     void runCameraChains (const ParameterStore::Snapshot& params, bool inverted);
     void runChainPass (RenderTarget& target, const sg_view& previous, bool invert, float uvScale,
                        const ParameterStore::Snapshot& params);
+    void renderStrip (float posH, float posZ, float focus, float bias, const sg_view& depth, bool depthInverted);
     void renderComposite (const CompositeState& state);
     void drawGemQuad (const sg_view& texture, const txmap::Geometry& g, float alpha);
     void drawMaskedQuad (const sg_view& texture, const txmap::Geometry& g, float alpha,
@@ -107,6 +110,13 @@ private:
     RenderTarget mixTarget;             // MIXOUTPUT's gemframebuffer, 1024×1024
     RenderTarget composite;             // the finished picture, output-sized
 
+    // STRIP (§2.5, D25): one panorama texture; `stripScene` is its first
+    // gemframebuffer (the panorama), `stripBokeh` the second (the mask).
+    Texture stripTexture;
+    RenderTarget stripScene;
+    RenderTarget stripBokeh;
+    int stripDepthUnit = 2;
+
     // Camera: frames arrive through a staging buffer into `cameraRaw`. On
     // each legacy tick (D14) the two chains run (§2.7): the depth chain into
     // `depthChain` (tex unit 2), the live chain into `liveChain` and then,
@@ -128,6 +138,7 @@ private:
                                             LineRamp (300), LineRamp (300), LineRamp (300), LineRamp (300) };
     LineRamp mixLevelRamp { 100 };
     LineRamp cameraLevelRamp { 100 };   // CAMERAOUTPUT: lvl → $1 100 → line
+    LineRamp stripPositionRamp { 500 }; // STRIP: posH → $1 500 → line
 };
 
 } // namespace pixo

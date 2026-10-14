@@ -13,6 +13,9 @@ namespace
 {
 
 constexpr int mixBufferSize = 1024;             // MIXOUTPUT: gemframebuffer dimen 1024 1024
+constexpr int stripBufferWidth = 1024;          // STRIP: gemframebuffer dimen 1024 768 (both)
+constexpr int stripBufferHeight = 768;
+constexpr float stripBokehHalfWidth = 5.33f;    // STRIP's bokeh: [rectangle 5.33 4]
 constexpr float mixSquareHalfSize = 4.04f;      // [square 4.04]
 constexpr float layerZ = -4.0f;                 // [translateXYZ 0 0 -4]
 
@@ -132,6 +135,8 @@ bool Compositor::initialise (std::string& error)
         slot = Texture {};
 
     ensureTarget (mixTarget, mixBufferSize, mixBufferSize, "mix-buffer");
+    ensureTarget (stripScene, stripBufferWidth, stripBufferHeight, "strip-scene");
+    ensureTarget (stripBokeh, stripBufferWidth, stripBufferHeight, "strip-bokeh");
     return true;
 }
 
@@ -217,8 +222,18 @@ void Compositor::destroy (RenderTarget& target)
 
 void Compositor::setImage (ImageBank bank, int slot, const DecodedImage* image)
 {
+    if (bank == ImageBank::strip && slot == 0)
+    {
+        destroy (stripTexture);
+
+        if (image != nullptr && image->width > 0 && image->height > 0)
+            stripTexture = makeTexture (*image);
+
+        return;
+    }
+
     if (bank != ImageBank::mix || slot < 0 || slot >= static_cast<int> (mixSlots.size()))
-        return;     // pad and strip banks arrive with their layers (P2, P3)
+        return;     // the pad bank arrives with its layer (P3)
 
     destroy (mixSlots[static_cast<std::size_t> (slot)]);
 
@@ -404,6 +419,20 @@ void Compositor::renderFrame (const ParameterStore::Snapshot& params, const Comp
     state.mixDepth = cameraHasPicture ? depthChain[static_cast<std::size_t> (chainCurrent)].textureView : opaqueBlack.view;
     state.mixDepthInverted = mixDepthUnit == 3 && compat.realInvertedDepth;
 
+    // STRIP (§2.5): posH ramps over 500 ms; posZ and the level are immediate.
+    const auto posH = stripPositionRamp.update (txmap::stripPosH (params[ParamId::stripPosition]), nowMs);
+    state.stripAlpha = txmap::stripLevel (params[ParamId::stripLevel], params[ParamId::masterLevel]);
+    state.stripVisible = state.stripAlpha > 0.0f;
+
+    const auto stripBlurMode = static_cast<int> (params[ParamId::stripBlurMode]);
+    stripDepthUnit = txmap::depthUnit (stripBlurMode, camInv, stripDepthUnit, true);
+
+    if (state.stripVisible)
+        renderStrip (posH, txmap::stripPosZ (params[ParamId::stripZoom]),
+                     txmap::blurFocus (params[ParamId::stripFocus]),
+                     stripBlurMode == 0 ? 0.0f : txmap::blurBias (params[ParamId::stripBias]),
+                     state.mixDepth, stripDepthUnit == 3 && compat.realInvertedDepth);
+
     state.cameraAlpha = cameraLevelRamp.update (txmap::cameraLevel (params[ParamId::cameraLevel],
                                                                      params[ParamId::masterLevel],
                                                                      params[ParamId::cameraOn]), nowMs);
@@ -448,6 +477,65 @@ void Compositor::renderMixBuffer (const std::array<float, 4>& weights, float lev
     sg_end_pass();
 }
 
+void Compositor::renderStrip (float posH, float posZ, float focus, float bias, const sg_view& depth, bool depthInverted)
+{
+    const auto aspect = static_cast<float> (stripBufferWidth) / static_cast<float> (stripBufferHeight);
+    const auto projection = gemProjection (aspect, zeroToOneDepth);
+
+    // First buffer: the panorama, where the original chained four parts.
+    {
+        auto pass = offscreenPass (stripScene.colorView, 0.0f, 0.0f, 0.0f, 0.0f, "strip-scene");
+        sg_begin_pass (&pass);
+
+        if (stripTexture.image.id != SG_INVALID_ID)
+        {
+            const auto quad = txmap::stripQuad (posH);
+            const auto vsParams = quadParams (projection * translation (quad.centreX, 0.0f, posZ),
+                                              quad.halfWidth, quad.halfHeight);
+
+            sg_apply_pipeline (quadPipeline);
+
+            sg_bindings bindings {};
+            bindings.views[VIEW_tex] = stripTexture.view;
+            bindings.samplers[SMP_smp] = linearClamp;
+            sg_apply_bindings (&bindings);
+
+            fs_params_t fsParams {};
+            fsParams.color[0] = fsParams.color[1] = fsParams.color[2] = fsParams.color[3] = 1.0f;
+
+            sg_apply_uniforms (UB_vs_params, SG_RANGE (vsParams));
+            sg_apply_uniforms (UB_fs_params, SG_RANGE (fsParams));
+            sg_draw (0, 4, 1);
+        }
+
+        sg_end_pass();
+    }
+
+    // Second buffer: the bokeh mask over the panorama.
+    {
+        auto pass = offscreenPass (stripBokeh.colorView, 0.0f, 0.0f, 0.0f, 1.0f, "strip-bokeh");
+        sg_begin_pass (&pass);
+        sg_apply_pipeline (bokehPipeline);
+
+        sg_bindings bindings {};
+        bindings.views[VIEW_rendered_tex] = stripScene.textureView;
+        bindings.views[VIEW_depth_tex] = depth;
+        bindings.samplers[SMP_smp] = linearClamp;
+        sg_apply_bindings (&bindings);
+
+        const auto vsParams = quadParams (projection * translation (0.0f, 0.0f, layerZ), stripBokehHalfWidth, 4.0f);
+        bokeh_params_t bokehParams {};
+        bokehParams.focus_bias[0] = focus;
+        bokehParams.focus_bias[1] = bias;
+        bokehParams.focus_bias[2] = depthInverted ? 1.0f : 0.0f;
+
+        sg_apply_uniforms (UB_vs_params, SG_RANGE (vsParams));
+        sg_apply_uniforms (UB_bokeh_params, SG_RANGE (bokehParams));
+        sg_draw (0, 4, 1);
+        sg_end_pass();
+    }
+}
+
 void Compositor::renderComposite (const CompositeState& state)
 {
     const auto& g = state.geometry;
@@ -477,6 +565,10 @@ void Compositor::renderComposite (const CompositeState& state)
         sg_apply_uniforms (UB_bokeh_params, SG_RANGE (bokehParams));
         sg_draw (0, 4, 1);
     }
+
+    // STRIP: its mask buffer on the output quad, over MIX (§2.2).
+    if (state.stripVisible)
+        drawGemQuad (stripBokeh.textureView, g, state.stripAlpha);
 
     // CAMERAOUTPUT: the live camera on the output quad, not HEAD-gated (§2.2).
     if (cameraHasPicture && state.cameraAlpha > 0.0f)

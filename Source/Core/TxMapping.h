@@ -31,6 +31,26 @@ float rotation (float raw);     // 180 − v, in degrees
 float blurFocus (float raw);    // /127
 float blurBias (float raw);     // /1270
 
+/** `strip posH`: (h − 75.59) / 8.15748 for h ∈ 0–800 (§3.1). */
+float stripPosH (float raw);
+
+/** `strip posZ`: −4 − z/127 × 8 (§3.1). */
+float stripPosZ (float raw);
+
+/** `strip stripLevel`: lvl/127 × mstrlvl/127 (linear master, D14). */
+float stripLevel (float stripLevelRaw, float masterRaw);
+
+/** The STRIP panorama (D25): the original's four `rectangle 13.303 4`, chained
+    26.6 apart from posH leftwards, as one quad. */
+struct StripQuad
+{
+    float centreX = 0.0f;
+    float halfWidth = 0.0f;
+    float halfHeight = 0.0f;
+};
+
+StripQuad stripQuad (float posH);
+
 /** `camput lvl`: wclvl/127 × √(master/127 × camOn) (§3.1; √ master — D14). */
 float cameraLevel (float cameraLevelRaw, float masterRaw, float cameraOn);
 

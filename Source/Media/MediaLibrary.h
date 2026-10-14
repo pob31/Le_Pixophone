@@ -7,6 +7,7 @@
 #include <functional>
 #include <map>
 
+#include "Core/DecodedImage.h"
 #include "Core/PresetFile.h"
 
 namespace pixo
@@ -24,6 +25,10 @@ class RenderEngine;
     Loading a preset reads `presets/<prefix><n>.txt` and decodes each image on
     a worker thread, then hands it to the render engine. As in GEM, a missing
     or unreadable image leaves that slot's previous picture in place.
+
+    STRIP presets (D25) list one panorama or several parts; the parts are
+    joined left to right into one panorama. If any part is missing, the
+    previous panorama stays.
     Message thread only, except where noted. */
 class MediaLibrary final
 {
@@ -63,6 +68,8 @@ private:
 
     void decodeInBackground (ImageBank bank, int slot, const juce::File& file, int generation);
     void finishSlot (ImageBank bank, int slot, int generation, std::shared_ptr<Decoded> result);
+    void loadStripPreset (const juce::String& presetName, const std::vector<std::string>& names, const juce::File& folder);
+    void finishStrip (int generation, int partCount, std::shared_ptr<const DecodedImage> panorama);
     void setStatus (const juce::String& message);
     std::vector<SlotState>& slotsOf (ImageBank bank);
 

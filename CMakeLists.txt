@@ -69,6 +69,7 @@ endif()
 # ramps, preset files. Shared by the app and the unit tests.
 add_library(pixo_core STATIC
     Source/Core/GemSpace.cpp
+    Source/Core/ImageOps.cpp
     Source/Core/Params.cpp
     Source/Core/PresetFile.cpp
     Source/Core/TxMapping.cpp)

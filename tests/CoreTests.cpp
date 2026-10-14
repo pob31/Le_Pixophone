@@ -4,6 +4,7 @@
 // executable (or `ctest`), exit code 0 = all passed.
 
 #include "Core/GemSpace.h"
+#include "Core/ImageOps.h"
 #include "Core/LineRamp.h"
 #include "Core/Params.h"
 #include "Core/PresetFile.h"
@@ -86,6 +87,50 @@ void testCameraMapping()
     CHECK (txmap::toDeviceRange (127.0f, -13, -1, 1) == -1);
     CHECK (txmap::toDeviceRange (63.5f, -13, -1, 1) == -7);
     CHECK (txmap::toDeviceRange (64.0f, 0, 255, 5) % 5 == 0);
+}
+
+void testStripMapping()
+{
+    CHECK_NEAR (txmap::stripPosH (400.0f), 39.7681, 1e-3);     // the default (§3.1)
+    CHECK_NEAR (txmap::stripPosZ (0.0f), -4.0, 1e-6);
+    CHECK_NEAR (txmap::stripPosZ (127.0f), -12.0, 1e-6);
+    CHECK_NEAR (txmap::stripLevel (127.0f, 63.5f), 0.5, 1e-6);
+
+    // The one panorama quad covers the four parts exactly: 4 × 26.6 wide,
+    // centred 1.5 spacings left of posH.
+    const auto quad = txmap::stripQuad (10.0f);
+    CHECK_NEAR (quad.centreX, 10.0 - 39.9, 1e-4);
+    CHECK_NEAR (quad.halfWidth, (3.0 * 26.6 + 2.0 * 13.303) / 2.0, 1e-4);
+    CHECK_NEAR (quad.halfHeight, 4.0, 1e-6);
+    CHECK_NEAR (quad.centreX + quad.halfWidth, 10.0 + 13.303, 1e-4);   // right edge = first part's right edge
+}
+
+std::shared_ptr<const DecodedImage> solidImage (int width, int height, std::uint8_t value)
+{
+    auto image = std::make_shared<DecodedImage>();
+    image->width = width;
+    image->height = height;
+    image->rgba.assign (static_cast<std::size_t> (width * height * 4), value);
+    return image;
+}
+
+void testImageJoin()
+{
+    // Four equal parts side by side, left to right.
+    const auto joined = joinHorizontally ({ solidImage (4, 2, 10), solidImage (4, 2, 20),
+                                            solidImage (4, 2, 30), solidImage (4, 2, 40) }, 1000);
+    CHECK (joined.width == 16 && joined.height == 2);
+    CHECK (joined.rgba[0] == 10);                       // first pixel: part 1
+    CHECK (joined.rgba[(4 * 1 + 0) * 4] == 20);         // x = 4: part 2
+    CHECK (joined.rgba[(16 + 15) * 4] == 40);           // last pixel of row 2: part 4
+
+    // A taller part is scaled to the first part's height, keeping its shape.
+    const auto mixed = joinHorizontally ({ solidImage (4, 2, 10), solidImage (4, 4, 50) }, 1000);
+    CHECK (mixed.width == 6 && mixed.height == 2);
+
+    // Wider than the GPU limit: scaled down as a whole.
+    const auto fitted = joinHorizontally ({ solidImage (8, 4, 1), solidImage (8, 4, 1) }, 8);
+    CHECK (fitted.width == 8 && fitted.height == 2);
 }
 
 void testCameraChainMapping()
@@ -241,6 +286,8 @@ int main()
     testGeometryFormulas();
     testCameraMapping();
     testCameraChainMapping();
+    testStripMapping();
+    testImageJoin();
     testAspect();
     testGeometryMapperQuirk();
     testGemSpace();

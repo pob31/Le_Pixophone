@@ -83,6 +83,7 @@ public:
 
         // The original loads preset 0 at start-up (loadbang, §3.3).
         media->loadPreset (ImageBank::mix, 0);
+        media->loadPreset (ImageBank::strip, 0);
     }
 
     void systemRequestedQuit() override

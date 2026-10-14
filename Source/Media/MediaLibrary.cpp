@@ -1,5 +1,6 @@
 #include "Media/MediaLibrary.h"
 
+#include "Core/ImageOps.h"
 #include "Render/RenderEngine.h"
 
 namespace pixo
@@ -129,6 +130,13 @@ void MediaLibrary::loadPreset (ImageBank bank, int number)
 
     const auto names = parsePresetFile (presetFile.loadFileAsString().toStdString());
     const auto folder = root.getChildFile (bankImageFolder (bank));
+
+    if (bank == ImageBank::strip)
+    {
+        loadStripPreset (presetName, names, folder);
+        return;
+    }
+
     auto& bankSlots = slotsOf (bank);
     int missing = 0;
 
@@ -153,6 +161,88 @@ void MediaLibrary::loadPreset (ImageBank bank, int number)
 
     setStatus (presetName + ": " + juce::String (static_cast<int> (names.size())) + " image(s)"
                + (missing > 0 ? ", " + juce::String (missing) + " missing" : juce::String()));
+}
+
+void MediaLibrary::loadStripPreset (const juce::String& presetName, const std::vector<std::string>& names,
+                                    const juce::File& folder)
+{
+    auto& bankSlots = slotsOf (ImageBank::strip);
+    std::vector<juce::File> files;
+    int missing = 0;
+
+    for (std::size_t i = 0; i < bankSlots.size(); ++i)
+    {
+        auto& state = bankSlots[i];
+
+        if (i >= names.size())
+        {
+            state = SlotState {};
+            continue;
+        }
+
+        const auto file = folder.getChildFile (juce::String (names[i]));
+        state.fileName = file.getFileName();
+        state.status = file.existsAsFile() ? SlotStatus::loading : SlotStatus::missing;
+        missing += file.existsAsFile() ? 0 : 1;
+        files.push_back (file);
+    }
+
+    if (files.empty() || missing > 0)
+    {
+        // GEM kept the previous strip images; the port keeps the panorama.
+        for (auto& state : bankSlots)
+            if (state.status == SlotStatus::loading)
+                state.status = SlotStatus::empty;
+
+        setStatus (presetName + ": " + juce::String (missing) + " of " + juce::String (static_cast<int> (files.size()))
+                   + " part(s) missing, previous strip kept");
+        return;
+    }
+
+    const auto generation = ++slotGenerations[ImageBank::strip][0];
+    const auto partCount = static_cast<int> (files.size());
+    juce::WeakReference<MediaLibrary> weakThis (this);
+
+    decoder.addJob ([weakThis, files, generation, partCount]
+    {
+        std::vector<std::shared_ptr<const DecodedImage>> parts;
+
+        for (const auto& file : files)
+            parts.push_back (decodeImage (file));
+
+        std::shared_ptr<const DecodedImage> panorama;
+
+        if (std::none_of (parts.begin(), parts.end(), [] (const auto& part) { return part == nullptr; }))
+            panorama = std::make_shared<DecodedImage> (joinHorizontally (parts, portableMaxTextureSize));
+
+        juce::MessageManager::callAsync ([weakThis, generation, partCount, panorama]
+        {
+            if (auto* self = weakThis.get())
+                self->finishStrip (generation, partCount, panorama);
+        });
+    });
+
+    setStatus (presetName + ": " + juce::String (partCount) + (partCount == 1 ? " panorama" : " parts, joined"));
+}
+
+void MediaLibrary::finishStrip (int generation, int partCount, std::shared_ptr<const DecodedImage> panorama)
+{
+    if (slotGenerations[ImageBank::strip][0] != generation)
+        return;
+
+    auto& bankSlots = slotsOf (ImageBank::strip);
+
+    for (int i = 0; i < partCount && i < static_cast<int> (bankSlots.size()); ++i)
+        bankSlots[static_cast<std::size_t> (i)].status = panorama != nullptr ? SlotStatus::loaded : SlotStatus::failed;
+
+    if (panorama == nullptr)
+    {
+        setStatus ("Could not decode a strip part");
+        return;
+    }
+
+    engine.setImage (ImageBank::strip, 0, panorama);
+    setStatus ("Strip: " + juce::String (panorama->width) + " x " + juce::String (panorama->height) + " panorama");
 }
 
 void MediaLibrary::decodeInBackground (ImageBank bank, int slot, const juce::File& file, int generation)

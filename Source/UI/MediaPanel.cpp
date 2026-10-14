@@ -47,6 +47,19 @@ MediaPanel::MediaPanel (MediaLibrary& libraryIn)
     loadButton.onClick = [this] { library.loadPreset (ImageBank::mix, static_cast<int> (presetSlider.getValue())); };
     addAndMakeVisible (loadButton);
 
+    stripLabel.setText ("Strip preset", juce::dontSendNotification);
+    addAndMakeVisible (stripLabel);
+
+    stripSlider.setRange (0.0, 127.0, 1.0);
+    stripSlider.setTextBoxStyle (juce::Slider::TextBoxLeft, false, 44, 22);
+    addAndMakeVisible (stripSlider);
+
+    stripLoadButton.onClick = [this] { library.loadPreset (ImageBank::strip, static_cast<int> (stripSlider.getValue())); };
+    addAndMakeVisible (stripLoadButton);
+
+    stripStateLabel.setFont (juce::FontOptions (juce::Font::getDefaultMonospacedFontName(), 12.5f, juce::Font::plain));
+    addAndMakeVisible (stripStateLabel);
+
     for (auto& label : slotLabels)
     {
         label.setFont (juce::FontOptions (juce::Font::getDefaultMonospacedFontName(), 12.5f, juce::Font::plain));
@@ -85,6 +98,24 @@ void MediaPanel::refresh()
                           || state.status == MediaLibrary::SlotStatus::failed;
         label.setColour (juce::Label::textColourId, problem ? juce::Colours::orange : juce::Colours::lightgrey);
     }
+
+    juce::StringArray parts;
+    bool stripProblem = false;
+
+    for (int slot = 0; slot < bankSlotCount (ImageBank::strip); ++slot)
+    {
+        const auto state = library.getSlot (ImageBank::strip, slot);
+
+        if (state.fileName.isNotEmpty())
+            parts.add (state.fileName.upToLastOccurrenceOf (".", false, false) + " [" + describe (state.status) + "]");
+
+        stripProblem = stripProblem || state.status == MediaLibrary::SlotStatus::missing
+                                    || state.status == MediaLibrary::SlotStatus::failed;
+    }
+
+    stripStateLabel.setText ("strip  " + (parts.isEmpty() ? juce::String ("-") : parts.joinIntoString (", ")),
+                             juce::dontSendNotification);
+    stripStateLabel.setColour (juce::Label::textColourId, stripProblem ? juce::Colours::orange : juce::Colours::lightgrey);
 
     statusLabel.setText (library.getStatusMessage(), juce::dontSendNotification);
 }
@@ -126,6 +157,13 @@ void MediaPanel::resized()
 
     for (auto& label : slotLabels)
         label.setBounds (area.removeFromTop (20));
+
+    area.removeFromTop (6);
+    auto stripRow = area.removeFromTop (26);
+    stripLabel.setBounds (stripRow.removeFromLeft (110));
+    stripLoadButton.setBounds (stripRow.removeFromRight (70).reduced (0, 1));
+    stripSlider.setBounds (stripRow.reduced (4, 0));
+    stripStateLabel.setBounds (area.removeFromTop (20));
 
     area.removeFromTop (4);
     statusLabel.setBounds (area.removeFromTop (22));

@@ -32,6 +32,33 @@ float rotation (float raw)     { return 180.0f - raw; }
 float blurFocus (float raw)    { return raw / 127.0f; }
 float blurBias (float raw)     { return raw / 1270.0f; }
 
+float stripPosH (float raw)
+{
+    return (raw - 75.59f) / 8.15748f;
+}
+
+float stripPosZ (float raw)
+{
+    return -4.0f - raw / 127.0f * 8.0f;
+}
+
+float stripLevel (float stripLevelRaw, float masterRaw)
+{
+    return (stripLevelRaw / 127.0f) * (masterRaw / 127.0f);
+}
+
+StripQuad stripQuad (float posH)
+{
+    constexpr float partHalfWidth = 13.303f;
+    constexpr float spacing = 26.6f;
+
+    // Parts at posH, posH − 26.6, − 53.2, − 79.8: the span runs from the
+    // last part's left edge to the first part's right edge.
+    const float right = posH + partHalfWidth;
+    const float left = posH - 3.0f * spacing - partHalfWidth;
+    return { (left + right) * 0.5f, (right - left) * 0.5f, 4.0f };
+}
+
 float cameraLevel (float cameraLevelRaw, float masterRaw, float cameraOn)
 {
     return cameraLevelRaw / 127.0f * std::sqrt (masterRaw / 127.0f * cameraOn);
