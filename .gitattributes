@@ -1,0 +1,3 @@
+# pd_original/ is a byte-exact copy of the 2011 archive (CRLF line endings).
+# Never convert it, so checkouts on every platform match the original files.
+pd_original/** -text
