@@ -67,7 +67,9 @@ Source layout (P0 created `App/` and `Render/`, P1 `Core/`, `Media/` and
   placement, status) and `OutputWindow` (borderless projector window).
 - `Source/Core/` — pure C++, no JUCE (D24): `Params` (ids, definitions,
   store, compat flags), `TxMapping` (Tx formulas), `GemSpace` (matrices, GEM
-  camera), `LineRamp` (Pd `line`), `PresetFile`, `DecodedImage`.
+  camera), `LineRamp` (Pd `line`), `PresetFile`, `DecodedImage`,
+  `ImageOps` (resize, panorama join), `AutoInvert` (motion meter and
+  integrator).
 - `Source/Control/` — MIDI profiles and router, feedback, footswitch matrix,
   FBV soft takeover, Firmata touchpads, automation.
 - `Source/Media/` — `MediaLibrary`: media root, preset loading (both formats,
@@ -95,9 +97,9 @@ against the spec's formulas.
 |---|---|---|
 | P0 Scaffold | CMake + JUCE submodule + vendored sokol + sokol-shdc build step; control window and borderless output window on a chosen display, both cleared by sokol (D3D11); CLAUDE.md build section | `cmake --build` makes an exe that opens both windows at vsync. **Done 2026-10-14**: Debug and Release build with zero warnings; output and preview render the sokol-shdc test pattern at 60 fps (D3D11 on the Intel Arc); `tools/bandmeter.py` measures the pattern's 15.0 cycles; clean quit (D20) |
 | P1 Stills | Parameter store + auto-generated debug panel; media root + preset loader; GEM camera space and geometry (§2.1, §3.4); MIX layer with XY weights; output quad | Loading `mixpreset0` and moving X/Y reproduces the old MIX blend. **Done 2026-10-14**: 76 unit checks pass; preset 0 loads at start-up as in the original; blends at (64, 64) and (100, 30) match a model of GEM's blending within 1.4/255; rotation, translation and aspect behave as the formulas predict; Debug runs clean under sokol validation |
-| P2 Camera | `CameraSource` (first backend: Windows) with manual exposure/gain/fps; camera chain; depth textures; bokeh shader port with blurModes; STRIP layer; CAMERA live layer | The hand-over-light-table mask works on MIX and STRIP. **Slice 1 done 2026-10-14**: capture (D26), camera panel, exposure/gain/auto parameters, live CAMERA layer on the output quad (camput lvl, 100 ms). **Slice 2 done 2026-10-14**: both camera chains on the 15 Hz legacy tick (invert, levels, 8-bit motion-blur feedback, colour-alpha), mask colour/bypass, CamInv (manual modes; XOR bypass kept), blur-mode depth selection incl. Q4/Q5 quirks (`depthUnit`, compat `realInvertedDepth`). The bokeh mask on MIX is verified: sharp where the camera sees dark, blurred with brightness. **Slice 3 done 2026-10-14**: STRIP (§2.5) with D25 panoramas: parts joined at load (`Core/ImageOps`, unit-tested), one 106.4 × 8 quad at posH − 39.9 / posZ, posH ramp 500 ms, its own bokeh (mode-4 quirk), strip preset 0 loaded at start-up (verified: 8192 × 600, seamless). Next: auto-invert (CamAutoInv + Tx's integrator) |
+| P2 Camera | `CameraSource` (first backend: Windows) with manual exposure/gain/fps; camera chain; depth textures; bokeh shader port with blurModes; STRIP layer; CAMERA live layer | The hand-over-light-table mask works on MIX and STRIP. **Slice 1 done 2026-10-14**: capture (D26), camera panel, exposure/gain/auto parameters, live CAMERA layer on the output quad (camput lvl, 100 ms). **Slice 2 done 2026-10-14**: both camera chains on the 15 Hz legacy tick (invert, levels, 8-bit motion-blur feedback, colour-alpha), mask colour/bypass, CamInv (manual modes; XOR bypass kept), blur-mode depth selection incl. Q4/Q5 quirks (`depthUnit`, compat `realInvertedDepth`). The bokeh mask on MIX is verified: sharp where the camera sees dark, blurred with brightness. **Slice 3 done 2026-10-14**: STRIP (§2.5) with D25 panoramas: parts joined at load (`Core/ImageOps`, unit-tested), one 106.4 × 8 quad at posH − 39.9 / posZ, posH ramp 500 ms, its own bokeh (mode-4 quirk), strip preset 0 loaded at start-up (verified: 8192 × 600, seamless). **Slice 4 done 2026-10-14, P2 done**: auto-invert as one local loop (`Core/AutoInvert`): pix_movement + pix_mean_color on the raw frame each tick in mode A, Tx's integrator (sum > invsens/8 flips, entering A recalls the manual state), parameters `invertSensitivity` and `motionThreshold`; 20 new unit checks; live on the webcam, a still scene measures 0 and the first frame against GEM's white start ≈ 0.95 |
 | P3 Loops and pads | Loop recorder (camcap1/2) with N/R capacity in system RAM (D16); SAMPLER players with transport in the engine; PAD layer with modes 0–3 incl. camera-loop pads | With the legacy preset (128 @ 15 fps), all §2.6 pad modes and §3.3 sampler transport behave as specified; larger N/R keep the same feel |
-| P4 Control | Real control UI (layout reference: the v109 GUI described in `PD114-ANALYSIS.md` §3.5; screenshots local only); BCR2000/nanoPAD/FBV profiles with feedback and echo suppression; footswitch matrix; soft takeover; Firmata touchpads; mix loop; auto-invert; refresh modes; M_Reset | A show can be played from the controllers without touching the mouse |
+| P4 Control | Real control UI (layout reference: the v109 GUI described in `PD114-ANALYSIS.md` §3.5; screenshots local only); BCR2000/nanoPAD/FBV profiles with feedback and echo suppression; footswitch matrix (incl. Camera_Invert: A ↔ the matching manual mode); soft takeover; Firmata touchpads; mix loop; auto-invert progress display (and whether the GUI radio keeps its path quirk, `PD114-ANALYSIS.md` §3.3); refresh modes; M_Reset | A show can be played from the controllers without touching the mouse |
 | P5 Platforms | macOS (Metal, AVFoundation) and Linux (GL, V4L2) backends; packaging | Same feature set on all three |
 | Then | Evolve: sensor-character stage, new layers or effects, projection mapping beyond one quad, replacement for the BCR2000, new audio engine | — |
 
@@ -260,11 +262,11 @@ against the spec's formulas.
 3. ~~P1 Stills~~ — done (D22–D24). Images upload as immutable textures
    created with their data; sokol's staging buffers are needed only for
    per-frame updates.
-4. **P2 Camera**: needs a camera with manual exposure/gain (R1, R3). Until the
-   chosen camera is on the desk, develop against any webcam through the
-   same `CameraSource` interface. Then the depth buffers feed the bokeh,
-   followed by STRIP and the live CAMERA layer. The camera stream uses
-   sokol's write-transient textures, decoded on the GPU where possible (D22).
-5. R1 camera shortlist can run in parallel.
-6. Preset media: the author checks his archives for missing strip images
+4. ~~P2 Camera~~ — done on the stand-in webcam (D25, D26). Fine exposure in
+   time units waits for the real camera (R1, R3).
+5. **P3 Loops and pads**: the loop recorder (D16, N frames at R fps with the
+   128-unit logic), then the SAMPLER players with their transport in the
+   engine, then the PAD layer (modes 0–3, camera-loop pads).
+6. R1 camera shortlist can run in parallel.
+7. Preset media: the author checks his archives for missing strip images
    (and others). The loader must tolerate missing files either way.

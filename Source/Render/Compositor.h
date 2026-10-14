@@ -6,6 +6,7 @@
 #include "sokol_gfx.h"
 
 #include "Camera/CameraSource.h"
+#include "Core/AutoInvert.h"
 #include "Core/DecodedImage.h"
 #include "Core/LineRamp.h"
 #include "Core/Params.h"
@@ -34,9 +35,20 @@ public:
     void uploadCameraFrame (const CameraFrame& frame);
 
     /** Offscreen passes: the MIX buffer, then the composite at the output's
-        size (its aspect drives GEM's projection). Call outside any pass. */
+        size (its aspect drives GEM's projection). Call outside any pass.
+        `latestFrame`: the last camera frame uploaded (or nullptr), which the
+        auto-invert analysis reads on the camera tick. */
     void renderFrame (const ParameterStore::Snapshot& params, const CompatFlags& compat,
-                      double nowMs, int width, int height);
+                      double nowMs, int width, int height, const CameraFrame* latestFrame);
+
+    struct AutoInvertStatus
+    {
+        bool inverted = false;      // the auto state (before the bypass XOR)
+        float progress = 0.0f;      // invint: towards the next flip, 0–1
+        float motion = 0.0f;        // the last measurement, 0–1
+    };
+
+    AutoInvertStatus getAutoInvertStatus() const;
 
     /** Draws the composite into the current swapchain pass, letterboxed to
         keep its aspect. */
@@ -131,6 +143,13 @@ private:
     RenderTarget cameraLive;
     bool cameraHasPicture = false;
     double lastCameraTickMs = -1.0e9;
+
+    // CamAutoInv (§2.7) and Tx's integrator (§3.3), now one local loop.
+    MotionMeter motionMeter;
+    AutoInvert autoInvert;
+    std::uint64_t lastMeasuredSequence = ~std::uint64_t { 0 };
+    float lastMotion = 0.0f;
+
     int mixDepthUnit = 2;               // §2.4: the tex unit MIX's bokeh last selected
 
     txmap::GeometryMapper geometryMapper;

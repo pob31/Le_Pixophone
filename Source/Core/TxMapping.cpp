@@ -75,6 +75,11 @@ float motionBlur (float raw)
     return raw / 133.0f;
 }
 
+float motionThreshold (float raw)
+{
+    return raw / 127.0f;
+}
+
 bool cameraInverted (int invertMode, bool maskBypass, bool autoState)
 {
     const bool inverted = invertMode == 2 ? autoState : invertMode == 1;

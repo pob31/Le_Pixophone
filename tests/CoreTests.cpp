@@ -3,6 +3,7 @@
 // Documentation/PD114-ANALYSIS.md. Plain C++, no framework: run the
 // executable (or `ctest`), exit code 0 = all passed.
 
+#include "Core/AutoInvert.h"
 #include "Core/GemSpace.h"
 #include "Core/ImageOps.h"
 #include "Core/LineRamp.h"
@@ -11,8 +12,10 @@
 #include "Core/TxMapping.h"
 
 #include <cmath>
+#include <cstdint>
 #include <cstdio>
 #include <string>
+#include <vector>
 
 namespace
 {
@@ -147,6 +150,8 @@ void testCameraChainMapping()
     CHECK (txmap::cameraInverted (0, true, false));
     CHECK (! txmap::cameraInverted (1, true, false));
     CHECK (txmap::cameraInverted (2, false, true));        // auto: the analysed state
+    CHECK (! txmap::cameraInverted (2, true, true));       // ... still XOR bypass
+    CHECK_NEAR (txmap::motionThreshold (127.0f), 1.0, 1e-6);
 
     // §2.4 depth units; Q5: STRIP mode 4 keeps whatever it had.
     CHECK (txmap::depthUnit (1, true, 3, false) == 2);
@@ -267,6 +272,85 @@ void testPresetFiles()
     CHECK (bankSlotCount (ImageBank::pad) == 12);
 }
 
+// A BGRA frame of one grey level, with `padding` unused bytes after each row.
+std::vector<std::uint8_t> greyFrame (int width, int height, std::uint8_t level, int padding = 0)
+{
+    std::vector<std::uint8_t> frame (static_cast<std::size_t> ((width * 4 + padding) * height), 0);
+
+    for (int y = 0; y < height; ++y)
+        for (int x = 0; x < width; ++x)
+            for (int c = 0; c < 3; ++c)
+                frame[static_cast<std::size_t> (y * (width * 4 + padding) + x * 4 + c)] = level;
+
+    return frame;
+}
+
+void setPixel (std::vector<std::uint8_t>& frame, int stride, int x, int y, std::uint8_t level)
+{
+    for (int c = 0; c < 3; ++c)
+        frame[static_cast<std::size_t> (y * stride + x * 4 + c)] = level;
+}
+
+void testMotionMeter()
+{
+    const float threshold = 8.0f / 127.0f;      // the default: 16 grey levels
+    MotionMeter meter;
+
+    // pix_movement starts from white: a black first frame moved everywhere.
+    auto frame = greyFrame (2, 2, 0);
+    CHECK_NEAR (meter.measure (frame.data(), 2, 2, 8, threshold), 1.0, 1e-6);
+    CHECK_NEAR (meter.measure (frame.data(), 2, 2, 8, threshold), 0.0, 1e-6);
+
+    setPixel (frame, 8, 1, 0, 17);              // 17 > 16: moved
+    CHECK_NEAR (meter.measure (frame.data(), 2, 2, 8, threshold), 0.25, 1e-6);
+    setPixel (frame, 8, 1, 0, 33);              // exactly 16 more: not moved
+    CHECK_NEAR (meter.measure (frame.data(), 2, 2, 8, threshold), 0.0, 1e-6);
+
+    // Row padding is skipped; a new size starts from white again.
+    auto padded = greyFrame (3, 2, 255, 4);
+    CHECK_NEAR (meter.measure (padded.data(), 3, 2, 16, threshold), 0.0, 1e-6);
+    setPixel (padded, 16, 2, 1, 0);
+    CHECK_NEAR (meter.measure (padded.data(), 3, 2, 16, threshold), 1.0 / 6.0, 1e-6);
+}
+
+void testAutoInvert()
+{
+    AutoInvert integrator;
+    integrator.update (0, 64.0f);               // N
+    integrator.update (2, 64.0f);               // A: starts from N's state, threshold 8
+    CHECK (! integrator.isInverted());
+
+    integrator.addMotion (5.0f);
+    CHECK_NEAR (integrator.getProgress(), 5.0 / 8.0, 1e-6);
+    integrator.addMotion (3.0f);                // 8 is not above 8
+    CHECK (! integrator.isInverted());
+    integrator.addMotion (0.1f);
+    CHECK (integrator.isInverted());
+    CHECK_NEAR (integrator.getProgress(), 0.0, 1e-6);   // the sum starts again
+
+    // Lowering the sensitivity below the sum flips at once.
+    integrator.addMotion (4.0f);
+    integrator.update (2, 24.0f);
+    CHECK (! integrator.isInverted());
+
+    // Back to P and into A again: starts from P's state with an empty sum.
+    integrator.addMotion (2.0f);
+    integrator.update (1, 24.0f);
+    integrator.update (2, 24.0f);
+    CHECK (integrator.isInverted());
+    CHECK_NEAR (integrator.getProgress(), 0.0, 1e-6);
+
+    // Straight into A with no manual mode before: Pd's [f] reads as P.
+    AutoInvert fresh;
+    fresh.update (2, 0.0f);
+    CHECK (fresh.isInverted());
+    fresh.addMotion (0.0f);                     // sensitivity 0: any motion flips, none doesn't
+    CHECK (fresh.isInverted());
+    fresh.addMotion (0.01f);
+    CHECK (! fresh.isInverted());
+    CHECK_NEAR (fresh.getProgress(), 0.0, 1e-6);
+}
+
 void testParameterStore()
 {
     ParameterStore store;
@@ -294,6 +378,8 @@ int main()
     testLineRamp();
     testPresetFiles();
     testParameterStore();
+    testMotionMeter();
+    testAutoInvert();
 
     std::printf ("%d checks, %d failed\n", checks, failures);
     return failures == 0 ? 0 : 1;

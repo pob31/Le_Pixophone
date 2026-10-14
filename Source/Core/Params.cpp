@@ -52,6 +52,8 @@ constexpr ParamDef definitions[] = {
     { ParamId::levelOutHigh,   "levelOutHigh",   "Levels out high",  "Camera chain", 0.0f, 127.0f, 127.0f, true },
     { ParamId::cameraBlur,     "cameraBlur",     "Motion blur",      "Camera chain", 0.0f, 127.0f,   0.0f, true },
     { ParamId::invertMode,     "invertMode",     "Invert N/P/A",     "Camera chain", 0.0f,   2.0f,   0.0f, true },
+    { ParamId::invertSensitivity, "invertSensitivity", "Invert sensitivity", "Camera chain", 0.0f, 127.0f, 64.0f, true },
+    { ParamId::motionThreshold, "motionThreshold", "Motion threshold", "Camera chain", 0.0f, 127.0f,   8.0f, true },
     { ParamId::cameraTickHz,   "cameraTickHz",   "Camera tick (Hz)", "Camera chain", 5.0f,  60.0f,  15.0f, true },
     { ParamId::testPattern,    "testPattern",    "Test pattern",     "Output",   0.0f,   1.0f,   0.0f, true },
 };

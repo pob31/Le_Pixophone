@@ -5,8 +5,9 @@ audiovisual instrument. A camera on an enlarger films a light table, and the
 live image masks a mix of pinhole photographs. This repo ports the original Pure
 Data + GEM system (patch114, ca. 2010) to one native application.
 
-Status: **P2 in progress**: camera capture, the camera chain, MIX and STRIP
-with their bokeh masks work (Windows only). Next: auto-invert.
+Status: **P2 done** (Windows only): camera capture, the camera chain with
+auto-invert, MIX and STRIP with their bokeh masks. Next: P3 (camera loops,
+SAMPLER, PAD).
 The integrated webcam is a stand-in; the likely real camera is The Imaging
 Source DFK 37AUX178 (PIXOPHONE-PLAN R1).
 

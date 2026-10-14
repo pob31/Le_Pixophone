@@ -365,7 +365,16 @@ bool RenderEngine::renderFrame (double timeSeconds)
     if (camera != nullptr && camera->takeLatestFrame (cameraFrame))
         compositor->uploadCameraFrame (cameraFrame);
 
-    compositor->renderFrame (params.snapshot(), params.compat, timeSeconds * 1000.0, outputWidth, outputHeight);
+    compositor->renderFrame (params.snapshot(), params.compat, timeSeconds * 1000.0, outputWidth, outputHeight,
+                             camera != nullptr ? &cameraFrame : nullptr);
+
+    {
+        const auto autoInvert = compositor->getAutoInvertStatus();
+        const std::lock_guard<std::mutex> lock (statusLock);
+        status.autoInverted = autoInvert.inverted;
+        status.autoInvertProgress = autoInvert.progress;
+        status.motion = autoInvert.motion;
+    }
 
     for (auto* surface : drawn)
     {

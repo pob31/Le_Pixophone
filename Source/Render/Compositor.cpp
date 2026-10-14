@@ -241,6 +241,11 @@ void Compositor::setImage (ImageBank bank, int slot, const DecodedImage* image)
         mixSlots[static_cast<std::size_t> (slot)] = makeTexture (*image);
 }
 
+Compositor::AutoInvertStatus Compositor::getAutoInvertStatus() const
+{
+    return { autoInvert.isInverted(), autoInvert.getProgress(), lastMotion };
+}
+
 void Compositor::uploadCameraFrame (const CameraFrame& frame)
 {
     if (frame.width <= 0 || frame.height <= 0)
@@ -357,7 +362,7 @@ void Compositor::runCameraChains (const ParameterStore::Snapshot& params, bool i
 
 //==============================================================================
 void Compositor::renderFrame (const ParameterStore::Snapshot& params, const CompatFlags& compat,
-                              double nowMs, int width, int height)
+                              double nowMs, int width, int height, const CameraFrame* latestFrame)
 {
     ensureTarget (composite, std::max (width, 1), std::max (height, 1), "composite");
 
@@ -397,12 +402,26 @@ void Compositor::renderFrame (const ParameterStore::Snapshot& params, const Comp
     // CAMERA (§2.7): the chains run on the legacy tick (D14), on the latest
     // camera image, whether or not a new one arrived, as GEM's frame loop did.
     const bool maskBypass = params[ParamId::maskBypass] > 0.5f;
-    const bool camInv = txmap::cameraInverted (static_cast<int> (params[ParamId::invertMode]), maskBypass, false);
+    const auto invertMode = static_cast<int> (params[ParamId::invertMode]);
+    autoInvert.update (invertMode, params[ParamId::invertSensitivity]);
+    const bool camInv = txmap::cameraInverted (invertMode, maskBypass, autoInvert.isInverted());
     const double tickMs = 1000.0 / std::max (static_cast<double> (params[ParamId::cameraTickHz]), 1.0);
 
     if (cameraRaw.image.id != SG_INVALID_ID && nowMs - lastCameraTickMs >= tickMs)
     {
         runCameraChains (params, camInv);
+
+        // CamAutoInv: in mode A only (Rx's aMode gate), each new frame the
+        // tick sees is measured. The decision came back from Tx a frame or
+        // more later, so a flip shows from the next tick.
+        if (invertMode == 2 && latestFrame != nullptr && latestFrame->sequence != lastMeasuredSequence
+            && latestFrame->width == cameraRaw.width && latestFrame->height == cameraRaw.height)
+        {
+            lastMotion = motionMeter.measure (latestFrame->bgra.data(), latestFrame->width, latestFrame->height,
+                                              latestFrame->width * 4, txmap::motionThreshold (params[ParamId::motionThreshold]));
+            autoInvert.addMotion (lastMotion);
+            lastMeasuredSequence = latestFrame->sequence;
+        }
 
         // Keep the tick's phase; after a stall, resume from now.
         lastCameraTickMs = nowMs - lastCameraTickMs > 2.0 * tickMs ? nowMs : lastCameraTickMs + tickMs;

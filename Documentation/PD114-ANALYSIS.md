@@ -552,6 +552,24 @@ differs from it.
   the `cai` motion values are summed, and when the sum exceeds `invsens / 8`
   the inversion flips and the sum resets (`invint` shows progress). The final
   `inv` is **XORed with mask bypass**.
+  - Rx reports `cai 0 <sum>` every 50 ms while the camera is on, then
+    `cai 0 0` (its reset bang goes into the hot inlet). The zeros add
+    nothing.
+  - Entering A through `[mod 3]` (BCR CC 11 + push 43, CC 107, footswitch
+    Camera_Invert, M_Reset) resets the sum and starts from the last manual
+    mode's inversion. Pd's `[f]` starts at 0, which reads as P.
+  - CC 107 and the footswitch toggle between A and the manual mode that
+    matches the current inversion, so the picture does not jump.
+  - A sensitivity change re-checks at once. Pd compares the sum last sent to
+    `[>]`, which is stale for at most 50 ms after a flip. The port compares
+    the current sum.
+  - **GUI-radio path**: clicking A on the GUI radio bypasses `[mod 3]`. It
+    neither resets the sum nor recalls the manual state, and sends no `cai inv`
+    until the first flip. That flip toggles the state the last auto session
+    left (initially 0), so it may not change the picture. The port's
+    parameter changes all behave like the controller path. P4 decides
+    whether the GUI radio keeps this.
+  - Ported in `Core/AutoInvert` (one local loop, D15).
 - **Refresh modes** (re-assign MIX slot textures after a load or swap, so
   changes appear at a good moment):
   - L: refresh all immediately.
@@ -756,6 +774,13 @@ receives), `MIDI_merge.ini`, and the Arduino `Touchpad_LEDpwm` sketch.
   - `pix_motionblur` = feedback, out = in·(1 − b) + previous·b.
   - `pix_coloralpha` = alpha from the average of r, g and b.
   - `pix_color r g b` = replaces the colour and keeps the alpha.
+  - `pix_movement` (CamAutoInv) = per pixel, grey = (R·79 + G·156 + B·21) >> 8
+    against the previous frame's grey; alpha = 255 where |Δ| > threshold × 255,
+    else 0. Its previous-frame buffer starts white and keeps its content while
+    the `aMode` spigot is closed. `pix_mean_color`'s alpha output is then the
+    share of moved pixels, 0–1. The port measures the raw camera frame on the
+    legacy tick, and only new frames, as GEM processed only new images
+    (`Core/AutoInvert`).
 - Master level: per layer, with the original curves (√ or linear), as in
   patch114 (Q11, D14). A final-gain mode exists only as a compat flag.
 - Quirks are reproduced, each behind a named compat flag that defaults to the

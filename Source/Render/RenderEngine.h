@@ -79,6 +79,9 @@ public:
         juce::String error;             // empty while healthy
         double framesPerSecond = 0.0;
         int surfaceCount = 0;
+        bool autoInverted = false;          // auto-invert state, before the bypass XOR
+        float autoInvertProgress = 0.0f;    // towards the next flip, 0–1
+        float motion = 0.0f;                // the last motion measurement, 0–1
     };
 
     /** Any thread. */

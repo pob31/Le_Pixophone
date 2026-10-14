@@ -61,7 +61,9 @@ enum class ParamId : int
     levelOutLow,
     levelOutHigh,
     cameraBlur,         // cam blur = v/133 (pix_motionblur)
-    invertMode,         // 0 N, 1 P (inverted), 2 A (auto, from motion — later)
+    invertMode,         // 0 N, 1 P (inverted), 2 A (auto: flips with motion, §3.3)
+    invertSensitivity,  // invsens: auto flips once the motion sum exceeds v/8
+    motionThreshold,    // cai threshold = v/127: grey change that counts as motion
     cameraTickHz,       // D14 legacy tick for per-frame camera effects
 
     // Output utilities (not in the original)

@@ -137,7 +137,10 @@ private:
         juce::String text;
         text << "GPU: " << (status.backendName.isNotEmpty() ? status.backendName : juce::String ("starting...")) << "\n"
              << "Frame rate: " << juce::String (status.framesPerSecond, 1) << " fps"
-             << "   Surfaces: " << status.surfaceCount << "\n";
+             << "   Surfaces: " << status.surfaceCount << "\n"
+             << "Auto-invert: " << (status.autoInverted ? "inverted" : "normal")
+             << "   next flip " << juce::roundToInt (status.autoInvertProgress * 100.0f) << "%"
+             << "   motion " << juce::String (status.motion, 3) << "\n";
 
         if (status.error.isNotEmpty())
             text << "Error: " << status.error;

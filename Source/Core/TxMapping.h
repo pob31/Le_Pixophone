@@ -60,6 +60,9 @@ std::array<float, 3> maskColor (float m, float r, float g, float b);
 /** `cam blur`: v / 133 (pix_motionblur's feedback amount, 0–0.955). */
 float motionBlur (float raw);
 
+/** `cai threshold`: v / 127, pix_movement's threshold (0–1 of the grey range). */
+float motionThreshold (float raw);
+
 /** The inversion Tx sends as `cai inv` (and Rx publishes as CamInv): the
     manual mode (1 = P) XOR mask bypass (Q12 quirk, kept). Auto mode (2)
     keeps the state the motion analysis last decided (`autoState`). */
