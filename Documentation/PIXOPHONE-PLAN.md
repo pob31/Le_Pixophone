@@ -1,12 +1,12 @@
 # Le Pixophone (new) — plan and decisions
 
-Status: **planning** (2026-10-14). No code yet. The reverse-engineered spec of
-the original is `PD114-ANALYSIS.md`; this file records what we decided, the
-proposed architecture, and the order of work.
+Status: **P0 scaffold done** (2026-10-14); next is P1. The reverse-engineered
+spec of the original is `PD114-ANALYSIS.md`; this file records what we
+decided, the architecture, and the order of work.
 
 ## Decision records
 
-Numbered D1…; D19 is the next free number. A decision is changed by adding a
+Numbered D1…; D22 is the next free number. A decision is changed by adding a
 new record that supersedes it, not by editing the old one.
 
 | # | Decision | Why |
@@ -29,6 +29,9 @@ new record that supersedes it, not by editing the old one.
 | D16 | **Loopers hold more frames.** Capacity **N** frames and capture rate **R** are parameters per looper (camcap1/2); loop length = N / R. All 128-frame logic becomes **loop units** u ∈ 0–127 (1/128 of the loop), scaled to N:<br>• in point → first frame of its unit, `floor(u·N/128)`; out point → last frame of its unit, `floor((u+1)·N/128) − 1`; scrub → first frame of its unit;<br>• playheads step ±1 frame every `(140 − speed) · 15/R` ms, so default speed 73 still plays in real time at any R;<br>• camera-loop pad start = `((p−1)·14 + padVidInc·7) mod 128` units → frames; counters run `mod N`;<br>• recording captures N frames at R fps; progress is shown in units.<br>Frames live in **system RAM** (one ring per looper, at a configurable capture resolution). Only the frames on screen are uploaded each render frame (≤ 6: two players + four PADv quads), so VRAM doesn't bound N. A **legacy preset (N = 128, R = 15)** reproduces patch114 exactly and is used to verify against the spec. Default N/R: set by the author in play. This extends D12; capture rate is no longer tied to D14's 15 Hz legacy tick, which still drives motion blur and auto-invert. | Author: "The loopers can probably hold more frames than at the time." 2 × 128 frames was a 2010 memory limit, not a musical choice. Unit scaling keeps every controller mapping and pad layout meaningful at any capacity. |
 | D17 | **Camera exposure and gain are performance controls.** They are parameters like any other (D8): MIDI, pedal soft takeover, footswitch resets, smoothing as in the patch. The camera backend applies them **live while streaming**: no stream restart, no dropped frames, latest value wins (coalesced on the camera thread), with low and measured control-to-image latency. Frame rate and format are also live-switchable, accepting a short re-sync as the original's 500 ms gain/exposure re-push implies. The sensor-character stage (D7) is an add-on for cameras that can't produce enough grain or banding, not a replacement for the real sensor. | Author: gain and exposure "were part of the performance, giving grainy pictures and scan lines of various thickness". The physical camera + flickering light *is* the instrument here. |
 | D18 | **JUCE 9.0.4**, the latest upstream tag on 2026-10-14, pinned as the `ThirdParty/JUCE` submodule (completes D3). Bumps are deliberate and noted here. The author is updating his local `C:\JUCE` to 9.x too. The juce-docs MCP reads XOA's 9.0.2 doxygen docs, close enough for API lookups. | No reason to pin older: same AGPLv3/commercial licence as 8.x, no legacy code to protect, and JUCE 9's breaking changes (SVG/`Drawable` rework, EGL on Linux) don't touch a sokol-rendered app written fresh. House direction is 9.x (author, 2026-10-14): WFS-DIY is getting the 9 pin now and XOA is half migrated. Only go.dot stays mixed, because its Tracktion Engine dependency still requires JUCE 8. **Risk for D2:** a future audio engine built on Tracktion Engine would face the same JUCE 8 constraint; check Tracktion's JUCE support before choosing it. |
+| D19 | **sokol as pinned submodules.** `ThirdParty/sokol` (headers; commit 5e94d12, 2026-10-12) and `ThirdParty/sokol-tools-bin` (prebuilt `sokol-shdc` + its `sokol_shaders.cmake`; commit b975d56, 2026-10-11; **shallow**). Shaders live in `Source/Render/shaders/*.glsl` and are compiled at build time into `<build>/compile_shaders/`, in one language per platform: `hlsl5` (Windows), `metal_macos`, `glsl430` (Linux). Always bump sokol and sokol-tools-bin **together**, since the generated code must match the header. sokol's API moves fast: read `ThirdParty/sokol/CHANGELOG.md` before using a new area. Uploads changed in October 2026: staging buffers + `sg_copy_buffer_to_image`, no `sg_update_image`. | Pinned and reproducible. sokol-tools-bin's full history is ≈ 600 MB of old binaries, while a shallow clone is ≈ 56 MB for all platforms. Its own CMake helper picks the host binary. |
+| D20 | **GPU surfaces and the threading rule.** Each `GpuSurfaceComponent` owns a native child window positioned over it, using our own host rather than `juce::HWNDComponent`, which destroys its window immediately. **The message thread never blocks on the render thread.** Detaching is asynchronous: the render thread releases the swapchain and flushes, then the window is destroyed on the message thread. Quitting has two steps: `RenderEngine::stopAsync` releases swapchains and the device while the message loop still runs, then `quit()`. The output presents with vsync and paces the loop; previews present without waiting. | DXGI sends messages to a swapchain window's thread when swapchains and devices are released. A blocked message thread deadlocked P0's first design: the render thread was stuck until JUCE force-killed it after 4 s. After the change, 20/20 quits took 0.12–0.15 s. |
+| D21 | **Back buffers are 8-bit BGRA UNORM: no sRGB conversion, no depth buffer.** Layers are alpha-blended in painter's order in gamma-encoded space, as GEM did. | Faithful blending (D14). sRGB conversion would change every crossfade, flash and decay curve. |
 
 ## Architecture (proposed)
 
@@ -51,18 +54,25 @@ new record that supersedes it, not by editing the old one.
             └──────────────────────────────────────────────────────────┘
 ```
 
-Proposed source layout (decided at scaffold time):
+Source layout (P0 created `App/` and `Render/`; the rest arrive with their
+phases):
 
-- `Source/App/` — application, windows, display selection.
+- `Source/Main.cpp` — application lifecycle, logging, the two-step quit (D20).
+- `Source/App/` — `ControlWindow` (performer's window: preview, output
+  placement, status) and `OutputWindow` (borderless projector window).
 - `Source/Params/` — parameter store, definitions table, scaling and smoothing.
 - `Source/Control/` — MIDI profiles and router, feedback, footswitch matrix,
   FBV soft takeover, Firmata touchpads, automation.
 - `Source/Media/` — media root, image banks, preset loading (both formats, §4).
 - `Source/Camera/` — `CameraSource` interface and per-OS backends, motion analysis.
-- `Source/Render/` — sokol setup, swapchains, render graph, layers, shaders
-  (`Source/Render/shaders/*.glsl` → sokol-shdc).
+- `Source/Render/` — `RenderEngine` (render thread, sokol, surfaces),
+  `GpuSurfaceComponent` (JUCE side of a surface), `GpuBackend.h` (platform
+  device/swapchain interface), `NativeSurfaceWindow.h`, `SokolImpl.cpp`,
+  `Win/` (D3D11 backend and Win32 surface windows, free of JUCE headers),
+  `shaders/*.glsl` (sokol-shdc). Later: render graph and layers.
 - `Source/UI/` — control window panels mirroring the old layout (§3.5).
-- `tools/` — Pd analysis scripts (`pd2txt.py`, `pdxref.py`).
+- `tools/` — `setup.sh` (submodules), Pd analysis (`pd2txt.py`,
+  `pdxref.py`), `bandmeter.py`.
 
 Each layer of `PD114-ANALYSIS.md` §2 is a class with a clear parameter list,
 and its numeric behaviour (curves, envelope times, frame maths) is unit-tested
@@ -72,7 +82,7 @@ against the spec's formulas.
 
 | Phase | Content | Done when |
 |---|---|---|
-| P0 Scaffold | CMake + JUCE submodule + vendored sokol + sokol-shdc build step; control window and borderless output window on a chosen display, both cleared by sokol (D3D11); CLAUDE.md build section | `cmake --build` makes an exe that opens both windows at vsync |
+| P0 Scaffold | CMake + JUCE submodule + vendored sokol + sokol-shdc build step; control window and borderless output window on a chosen display, both cleared by sokol (D3D11); CLAUDE.md build section | `cmake --build` makes an exe that opens both windows at vsync. **Done 2026-10-14**: Debug and Release build with zero warnings; output and preview render the sokol-shdc test pattern at 60 fps (D3D11 on the Intel Arc); `tools/bandmeter.py` measures the pattern's 15.0 cycles; clean quit (D20) |
 | P1 Stills | Parameter store + auto-generated debug panel; media root + preset loader; GEM camera space and geometry (§2.1, §3.4); MIX layer with XY weights; output quad | Loading `mixpreset0` and moving X/Y reproduces the old MIX blend |
 | P2 Camera | `CameraSource` (first backend: Windows) with manual exposure/gain/fps; camera chain; depth textures; bokeh shader port with blurModes; STRIP layer; CAMERA live layer | The hand-over-light-table mask works on MIX and STRIP |
 | P3 Loops and pads | Loop recorder (camcap1/2) with N/R capacity in system RAM (D16); SAMPLER players with transport in the engine; PAD layer with modes 0–3 incl. camera-loop pads | With the legacy preset (128 @ 15 fps), all §2.6 pad modes and §3.3 sampler transport behave as specified; larger N/R keep the same feel |
@@ -192,14 +202,35 @@ against the spec's formulas.
   exposure/gain, so it is ruled out for the main path.
 - **R4 — Frame pacing**: output vsync on the projector display,
   camera-to-photon latency target, behaviour when the camera, capture (D12)
-  and projector rates differ.
+  and projector rates differ. **Hybrid GPUs**:
+  - The dev laptop has an Intel Arc 140T (drives the internal display) and
+    an NVIDIA RTX PRO 2000. D3D11 currently takes the default adapter (the
+    Intel); the control window shows which one.
+  - The projector may be wired to either GPU, and rendering on one while
+    presenting on the other costs a cross-adapter copy.
+  - So add a user choice of adapter, and check where the projector port is
+    wired.
+
+## Known issues
+
+- **Occasional slow process exit** (1–5 s, ≈ 1 run in 10–30; once > 8 s,
+  under an external window-capture tool).
+  - It happens after the app has fully shut down: every swapchain and the
+    D3D11 device have been released, with 0 references left. 30/30 exits
+    were fast with the GPU engine disabled.
+  - Attributed to driver/DXGI teardown at process exit.
+  - Harmless for performance, since all state is already gone. Revisit if
+    it grows.
 
 ## Next steps
 
 1. All questions in `PD114-ANALYSIS.md` §6 are closed: answered by the author
    (Q1–Q3, Q6–Q9, Q11) or settled by D14 (keep the original quirk, behind a
    compat flag).
-2. P0 scaffold with JUCE 9.0.4 (D18).
-3. R1 camera shortlist can run in parallel with P0–P1, since P1 needs no camera.
-4. Preset media: the author checks his archives for missing strip images
+2. ~~P0 scaffold with JUCE 9.0.4 (D18)~~ — done (D19–D21).
+3. **P1 Stills**: parameter store + auto-generated debug panel, media root
+   and preset loader, GEM camera space and geometry, MIX layer. This is the
+   first use of sokol's new staging-buffer uploads (D19).
+4. R1 camera shortlist can run in parallel with P1, since P1 needs no camera.
+5. Preset media: the author checks his archives for missing strip images
    (and others). The loader must tolerate missing files either way.

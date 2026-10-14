@@ -1,0 +1,10 @@
+[submodule "ThirdParty/JUCE"]
+	path = ThirdParty/JUCE
+	url = https://github.com/juce-framework/JUCE.git
+[submodule "ThirdParty/sokol"]
+	path = ThirdParty/sokol
+	url = https://github.com/floooh/sokol.git
+[submodule "ThirdParty/sokol-tools-bin"]
+	path = ThirdParty/sokol-tools-bin
+	url = https://github.com/floooh/sokol-tools-bin.git
+	shallow = true

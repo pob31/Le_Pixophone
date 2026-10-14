@@ -1,0 +1,13 @@
+# Build outputs
+build/
+build-*/
+out/
+
+# IDE state
+.vs/
+.vscode/
+*.user
+CMakeUserPresets.json
+
+# Python
+__pycache__/

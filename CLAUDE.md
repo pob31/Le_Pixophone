@@ -5,13 +5,29 @@ audiovisual instrument. A camera on an enlarger films a light table, and the
 live image masks a mix of pinhole photographs. This repo ports the original Pure
 Data + GEM system (patch114, ca. 2010) to one native application.
 
-Status: **planning, no code yet.** Start with the docs below.
+Status: **P0 scaffold done** (windows, render thread, sokol D3D11 test
+pattern; Windows only). Next: P1 (stills / MIX layer).
+
+## Build
+
+```
+./tools/setup.sh                          # after a fresh clone: submodules
+cmake -S . -B build
+cmake --build build --config Release      # or Debug (sokol validation + D3D11 debug layer)
+```
+
+Binary: `build/LePixophone_artefacts/<config>/Le Pixophone.exe`. On this
+machine CMake is the one bundled with Visual Studio 2026, not on PATH:
+`C:/Program Files/Microsoft Visual Studio/18/Community/Common7/IDE/CommonExtensions/Microsoft/CMake/CMake/bin/cmake.exe`
+(generator "Visual Studio 18 2026"). Configuring on macOS/Linux stops with a
+clear error until P5. Runtime log: `%APPDATA%\Le Pixophone\pixophone.log`
+(engine, sokol and surface events, adapter name, device release check).
 
 ## Where things are decided
 
-- `Documentation/PIXOPHONE-PLAN.md` — decision records (D1–D18; **D19 is the
-  next free number**), proposed architecture, phases P0–P5, research topics
-  R1–R4, next steps. It wins over anything else here.
+- `Documentation/PIXOPHONE-PLAN.md` — decision records (D1–D21; **D22 is the
+  next free number**), architecture and source layout, phases P0–P5, research
+  topics R1–R5, known issues, next steps. It wins over anything else here.
 - `Documentation/PD114-ANALYSIS.md` — reverse-engineered spec of the original:
   render engine (§2), control surface, MIDI map and command API (§3), presets
   and assets (§4), the author's answers and the defaults chosen where he
@@ -27,8 +43,13 @@ Status: **planning, no code yet.** Start with the docs below.
   `d:/dev/Tight-WFS`: `ThirdParty/JUCE` submodule, `Source/`,
   `Documentation/`).
 - GPU: sokol_gfx under JUCE — D3D11 (Windows), Metal (macOS), GL core
-  (Linux); shaders cross-compiled with sokol-shdc. Targets Windows, macOS,
-  Linux.
+  (Linux); shaders cross-compiled with sokol-shdc (D19). Targets Windows,
+  macOS, Linux. 8-bit BGRA UNORM, no sRGB, gamma-space blending like GEM (D21).
+- **Threading rule (D20): the message thread never blocks on the render
+  thread.** DXGI messages the window thread when swapchains/devices are
+  released, so waiting deadlocks. Surface detach is async, and quit is
+  two-step (`RenderEngine::stopAsync`, then `quit()`). Keep it that way when
+  adding features.
 - Faithful port of patch114 first, then evolve — **quirks and all** (D14).
   Reproduce the original's bugs and odd behaviours; each gets a named compat
   flag defaulting to the original. Don't "fix" behaviour while porting.
@@ -42,18 +63,26 @@ Status: **planning, no code yet.** Start with the docs below.
 - Camera loopers hold N frames at R fps (D16); the old 128-frame logic runs
   in "loop units" (1/128 of the loop) scaled to N. Legacy preset 128 @ 15 fps
   = exact patch114, used for verification.
-- Pico (third renderer) is out of scope. Controllers are ported as is behind swappable device profiles; the
-  hardware is not on hand, so develop against the GUI and virtual MIDI.
+- Pico (third renderer) is out of scope. Controllers are ported as is
+  behind swappable device profiles; the hardware is not on hand, so develop
+  against the GUI and virtual MIDI.
 - Camera: manual exposure/gain/fps abstraction plus an optional PS3 Eye-style
   "sensor character" stage. The PS3 Eye's scan lines and noise were part of
   the look.
 
 ## Repo shape
 
+- `Source/` — the application (layout in PIXOPHONE-PLAN "Source layout").
+  `Source/Render/Win/` holds Win32/D3D11 code and must stay free of JUCE
+  headers (`<windows.h>` clashes).
+- `ThirdParty/` — submodules: `JUCE` (9.0.4), `sokol`, `sokol-tools-bin`
+  (shallow). Bump sokol and sokol-tools-bin together. sokol's API moves fast:
+  read `ThirdParty/sokol/CHANGELOG.md` before using a new area.
 - `pd_original/` — **read-only reference**, an exact copy of
   `E:\Make\Le_Pixophone\patch_PureData\1_IMAGE` (v114): `patch114Rx_*.pd`
   (GEM render), `patch114Tx_*.pd` (control), `preset1.pd`, `pix_shader.pd`,
   `shader/` (GLSL; only `bokeh` is used). Never edit it.
+- `tools/setup.sh` — initialise submodules.
 - `tools/pd2txt.py` — dump a patch as numbered objects + connections, with
   x,y positions. `tools/pdxref.py` — send/receive cross-reference. Run with
   `python -I tools/pd2txt.py <patch.pd> <out.txt>`. Raw `.pd` files are
