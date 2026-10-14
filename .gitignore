@@ -11,3 +11,6 @@ CMakeUserPresets.json
 
 # Python
 __pycache__/
+
+# The author's GUI screenshots stay local until they say otherwise.
+Documentation/reference/gui/

@@ -104,6 +104,9 @@ sends nothing, so the default skips virtual and IR cameras (D26).
 - `Documentation/` — plan and spec (above). `Documentation/reference/` —
   original output frames (the target look: ≈ 15 scan-line cycles per picture
   height). `tools/bandmeter.py` measures band spacing in any frame.
+  `Documentation/reference/gui/` (git-ignored, local only) — screenshots of
+  the v109 Pd GUI, the layout reference for P4 (described in
+  `PD114-ANALYSIS.md` §3.5).
 
 ## Reading the Pd patches — traps
 

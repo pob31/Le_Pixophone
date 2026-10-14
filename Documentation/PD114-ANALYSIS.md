@@ -609,6 +609,68 @@ Main window panels (a screenshot is on page 3 of `dossier2/Le_Pixophone_pob.pdf`
 - **SIDEPANEL**, 3 pages: footswitch matrix; colours (mask, sampler 1/2,
   copy buttons); FBV targets, pedal, geometry.
 
+#### The v109 GUI (author's screenshots)
+
+The author shared four 1400×1050 screenshots of an older version,
+`patch109Tx_m.pd` / `patch109Rx_k.pd`. They are kept locally in
+`Documentation/reference/gui/`, which git ignores, and are not published. They
+show the panel layout the author played with, a reference for the P4 control
+surface:
+- `gui-v109-geometry-page.jpg`: the whole main window, sidepanel on Geometry.
+- `gui-v109-footswitch-page.jpg`: the same window, sidepanel on Foot_Switch.
+- `gui-v109-colour-page.jpg`: the same window, sidepanel on Colour.
+- `gui-v109-patches-and-footswitch-page.jpg`: the Rx and Tx root patches over
+  the main window.
+
+Layout, in three columns plus the sidepanel:
+- **Left column:** PAD (6×2 thumbnails, preset), PREVIEW_PAD (Load, preset),
+  PREVIEW_MIX (2×2, Load, preset), STRIP.
+- **Middle column:** PAD controls, MIX, VIDEO_OUTPUT.
+- **Right column:** WEBCAM, SAMPLER.
+
+Each bank pairs what is loaded with a preview of the preset about to load:
+PAD over PREVIEW_PAD, and MIX beside PREVIEW_MIX. STRIP stacks the loaded
+panorama (preset number, with a bar marking the visible section) over the
+preview (preset number and Load).
+
+Details the v114 code does not make obvious:
+- **MIX**:
+  - The four slots sit around a 2×2 block of quadrant colours (green, blue,
+    yellow, red), with a swap button between each pair of neighbours.
+  - Each corner has a pale lock square.
+  - The XY grid sits to the right, a red dot marking the current position.
+- **WEBCAM**:
+  - One slider, labelled Exp over Gain, with the active one in red.
+  - Invert_Mode radio is `0 1 A`, beside Invert_Sensitivity.
+  - The levels box draws the curve between In-Lo/In-Hi (horizontal) and
+    Lo/Hi (vertical).
+- **SIDEPANEL**: three page buttons at its top right.
+  - **Geometry**: Translations (Y and Z vertical, X horizontal) and Rotations
+    (X vertical, Y and Z horizontal).
+  - **Foot_Switch**: one column of toggles per footswitch, with a red
+    activity light and a Clear button at the top. Rows: Load_Pad/Mix/Strip,
+    Unlock_Pad/Mix, Camera_Exposure/Gain/Invert/Sensitivity/Threshold/
+    Mask_Level/Mask_Colour/Blur (with the value 64), Sampler_Play/Stop/Pause/
+    Loop/Reset/Record, Mix_Refresh_Mode, Pad_Mode/Kill/Decay_reset/
+    Fade_Reset/Distortion, Level_Pad/Camera/Mix/Sampler/Strip/Master,
+    Reset_Geometry, Aspect_Ratio (with a 9-way preset radio), GEM_Render.
+  - **Colour**: Mask, Sampler_1 and Sampler_2, each with Master/R/G/B
+    vertical sliders and two copy buttons to the other two.
+
+What v114 changed, so the screenshots are not the spec:
+- v109 has no BLUR panel; the bokeh came later.
+- v109 has no 15/30 fps toggle, no mask Bypass, and no mix-loop transport.
+- v109 has nine aspect presets; v114 adds 16:9.
+- PAD has a 4-way Disto radio and a footswitch Pad_Distortion. Neither exists
+  in v114, which has Vid.Inc instead.
+- The Tx root notes MIDI as "BCR2000 - P24 - Midi Channel 1; NanoPad - Midi
+  channel 2; RP10 - Midi Channel 3". In v114 the BCR uses preset 27 and the
+  FBV took over channel 3.
+- Rx v109 gives each layer chain its own `gemhead` numbers, which GEM renders
+  in ascending order: MIX 10–13, PAD 16/17, STRIP 18/19, CAMERA 20/21,
+  SAMPLER 22/23, PAD 25/26. So SAMPLER drew under the second PAD pass. v114
+  uses one `gemhead 10` and puts SAMPLER on top (§2). The port follows v114.
+
 External Pd dependencies (none needed in the port): cyclone `comment`, zexy
 `l2s`, ggee `image`, iemlib `splitfilename`/`speedlim`, unauthorized `grid`,
 `knob`, mapping `tolist`, `comport`. `nrpn_in`/`nrpn_out` are the author's
