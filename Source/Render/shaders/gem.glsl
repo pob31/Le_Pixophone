@@ -44,7 +44,7 @@ layout(binding=0) uniform texture2D rendered_tex;
 layout(binding=1) uniform texture2D depth_tex;
 layout(binding=0) uniform sampler smp;
 layout(binding=1) uniform bokeh_params {
-    vec4 focus_bias;    // x: focus, y: bias
+    vec4 focus_bias;    // x: focus, y: bias, z: 1 = read the depth inverted (compat: a real tex unit 3)
 };
 
 in vec2 uv;
@@ -59,6 +59,9 @@ void main() {
     // aspectcorrect = vec2(1.0, 500.0/500.0) in the original: a no-op.
 
     vec4 depth1 = texture(sampler2D(depth_tex, smp), uv);
+    if (focus_bias.z > 0.5) {
+        depth1 = 1.0 - depth1;
+    }
     float factor = depth1.x - focus_bias.x;
     vec2 dofblur = vec2(clamp(factor * focus_bias.y, -blurclamp, blurclamp));
 
@@ -142,10 +145,47 @@ void main() {
 @program blit blit_vs blit_fs
 
 // ---------------------------------------------------------------------------
-// Camera input: the capture's BGRA bytes were uploaded as RGBA8, so swap red
-// and blue; the capture's alpha byte is undefined, use 1. The CAMERA chain
-// (§2.7: invert, levels, motion blur, colour-alpha, mask colour) grows here.
-@fs camera_fs
+// The CAMERA chains (§2.7), run on the legacy camera tick (D14). The capture's
+// BGRA bytes were uploaded as RGBA8, so red and blue are swapped back here;
+// its alpha byte is undefined.
+//
+//   depth chain: camera → [pix_levels] → [pix_motionblur] → tex unit 2
+//   live chain:  camera → [pix_invert] → [pix_levels] → [pix_motionblur]
+//                → [pix_coloralpha] → (CAMERAOUTPUT: [pix_color], level)
+//
+// [pix_motionblur] is a feedback: out = in·(1 − b) + previous·b, kept in an
+// 8-bit target like GEM's.
+@fs camera_chain_fs
+layout(binding=0) uniform texture2D raw_tex;
+layout(binding=1) uniform texture2D previous_tex;
+layout(binding=0) uniform sampler smp;
+layout(binding=1) uniform chain_params {
+    vec4 levels;    // in low, in high, out low, out high
+    vec4 options;   // x: invert, y: motion blur, z: uv scale about the centre
+};
+
+in vec2 uv;
+out vec4 frag_color;
+
+void main() {
+    vec3 c = texture(sampler2D(raw_tex, smp), 0.5 + (uv - 0.5) * options.z).bgr;
+
+    if (options.x > 0.5) {
+        c = 1.0 - c;
+    }
+
+    float span = max(levels.y - levels.x, 1.0 / 255.0);
+    c = levels.z + clamp((c - levels.x) / span, 0.0, 1.0) * (levels.w - levels.z);
+
+    vec3 previous = texture(sampler2D(previous_tex, smp), uv).rgb;
+    frag_color = vec4(mix(c, previous, options.y), 1.0);
+}
+@end
+
+@program camera_chain blit_vs camera_chain_fs
+
+// [pix_coloralpha]: alpha from the colour (the average of r, g and b).
+@fs coloralpha_fs
 layout(binding=0) uniform texture2D tex;
 layout(binding=0) uniform sampler smp;
 
@@ -153,8 +193,31 @@ in vec2 uv;
 out vec4 frag_color;
 
 void main() {
-    frag_color = vec4(texture(sampler2D(tex, smp), uv).bgr, 1.0);
+    vec3 c = texture(sampler2D(tex, smp), uv).rgb;
+    frag_color = vec4(c, (c.r + c.g + c.b) / 3.0);
 }
 @end
 
-@program camera_process blit_vs camera_fs
+@program coloralpha blit_vs coloralpha_fs
+
+// A GEM quad showing a camera image: [pix_color] (unless bypassed) replaces
+// the colour and keeps the alpha, then colourRGB's alpha is the level.
+@fs masked_fs
+layout(binding=0) uniform texture2D tex;
+layout(binding=0) uniform sampler smp;
+layout(binding=1) uniform mask_params {
+    vec4 mask;      // rgb: [pix_color] colour, a: level
+    vec4 enable;    // x: 1 = [pix_color] on
+};
+
+in vec2 uv;
+out vec4 frag_color;
+
+void main() {
+    vec4 t = texture(sampler2D(tex, smp), uv);
+    vec3 rgb = enable.x > 0.5 ? mask.rgb : t.rgb;
+    frag_color = vec4(rgb, t.a * mask.a);
+}
+@end
+
+@program gem_masked gem_vs masked_fs

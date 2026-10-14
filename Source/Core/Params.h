@@ -42,6 +42,20 @@ enum class ParamId : int
     gainAuto,           // ran manual); webcams start in auto
     whiteBalanceAuto,
 
+    // Camera chain (§2.7): mask colour, levels, blur, inversion.
+    maskColorM,         // cam col = M·R/127², M·G/127², M·B/127²
+    maskColorR,
+    maskColorG,
+    maskColorB,
+    maskBypass,         // 1: no mask colour (pix_color off); also flips the inversion (Q12)
+    levelInLow,         // cam mlvl inLo inHi outLo outHi, each /127
+    levelInHigh,
+    levelOutLow,
+    levelOutHigh,
+    cameraBlur,         // cam blur = v/133 (pix_motionblur)
+    invertMode,         // 0 N, 1 P (inverted), 2 A (auto, from motion — later)
+    cameraTickHz,       // D14 legacy tick for per-frame camera effects
+
     // Output utilities (not in the original)
     testPattern,    // 0/1: show the alignment test pattern instead of the picture
 
@@ -69,6 +83,7 @@ const ParamDef& paramDef (ParamId id);
 struct CompatFlags
 {
     bool projectorRatioRecompute = false;   // Q10: Tx only recomputed width/height when the aspect slider moved
+    bool realInvertedDepth = false;         // Q4: tex unit 3 was an uninverted copy of unit 2
 };
 
 /** Last-value parameter store shared by the control and render threads

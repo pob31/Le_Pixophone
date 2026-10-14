@@ -1,6 +1,6 @@
 # Le Pixophone (new) — plan and decisions
 
-Status: **P2 Camera in progress** (2026-10-14): capture and the live layer work. The reverse-engineered
+Status: **P2 Camera in progress** (2026-10-14): capture, the camera chain and the bokeh mask on MIX work. The reverse-engineered
 spec of the original is `PD114-ANALYSIS.md`; this file records what we
 decided, the architecture, and the order of work.
 
@@ -95,7 +95,7 @@ against the spec's formulas.
 |---|---|---|
 | P0 Scaffold | CMake + JUCE submodule + vendored sokol + sokol-shdc build step; control window and borderless output window on a chosen display, both cleared by sokol (D3D11); CLAUDE.md build section | `cmake --build` makes an exe that opens both windows at vsync. **Done 2026-10-14**: Debug and Release build with zero warnings; output and preview render the sokol-shdc test pattern at 60 fps (D3D11 on the Intel Arc); `tools/bandmeter.py` measures the pattern's 15.0 cycles; clean quit (D20) |
 | P1 Stills | Parameter store + auto-generated debug panel; media root + preset loader; GEM camera space and geometry (§2.1, §3.4); MIX layer with XY weights; output quad | Loading `mixpreset0` and moving X/Y reproduces the old MIX blend. **Done 2026-10-14**: 76 unit checks pass; preset 0 loads at start-up as in the original; blends at (64, 64) and (100, 30) match a model of GEM's blending within 1.4/255; rotation, translation and aspect behave as the formulas predict; Debug runs clean under sokol validation |
-| P2 Camera | `CameraSource` (first backend: Windows) with manual exposure/gain/fps; camera chain; depth textures; bokeh shader port with blurModes; STRIP layer; CAMERA live layer | The hand-over-light-table mask works on MIX and STRIP. **Slice 1 done 2026-10-14**: capture (D26), camera panel, exposure/gain/auto parameters, live CAMERA layer on the output quad (camput lvl, 100 ms). Next: the camera chain and depth buffers, then STRIP (D25), then auto-invert |
+| P2 Camera | `CameraSource` (first backend: Windows) with manual exposure/gain/fps; camera chain; depth textures; bokeh shader port with blurModes; STRIP layer; CAMERA live layer | The hand-over-light-table mask works on MIX and STRIP. **Slice 1 done 2026-10-14**: capture (D26), camera panel, exposure/gain/auto parameters, live CAMERA layer on the output quad (camput lvl, 100 ms). **Slice 2 done 2026-10-14**: both camera chains on the 15 Hz legacy tick (invert, levels, 8-bit motion-blur feedback, colour-alpha), mask colour/bypass, CamInv (manual modes; XOR bypass kept), blur-mode depth selection incl. Q4/Q5 quirks (`depthUnit`, compat `realInvertedDepth`). The bokeh mask on MIX is verified: sharp where the camera sees dark, blurred with brightness. Next: STRIP (D25), then auto-invert |
 | P3 Loops and pads | Loop recorder (camcap1/2) with N/R capacity in system RAM (D16); SAMPLER players with transport in the engine; PAD layer with modes 0–3 incl. camera-loop pads | With the legacy preset (128 @ 15 fps), all §2.6 pad modes and §3.3 sampler transport behave as specified; larger N/R keep the same feel |
 | P4 Control | Real control UI; BCR2000/nanoPAD/FBV profiles with feedback and echo suppression; footswitch matrix; soft takeover; Firmata touchpads; mix loop; auto-invert; refresh modes; M_Reset | A show can be played from the controllers without touching the mouse |
 | P5 Platforms | macOS (Metal, AVFoundation) and Linux (GL, V4L2) backends; packaging | Same feature set on all three |
@@ -127,6 +127,15 @@ against the spec's formulas.
   manual exposure time directly controls the effect: exposures shorter than
   the flicker period show bands, multiples of 10 ms suppress them. A global
   shutter would only pulse frame to frame.
+
+  **Leading candidate (author, 2026-10-14): The Imaging Source DFK 37AUX178.**
+  The laptop's integrated camera is only a stand-in for development.
+  Backend consequence: generic UVC exposure on Windows is too coarse (R3),
+  so the DFK would get its own `CameraSource` backend on The Imaging
+  Source's IC4 SDK, with exposure in exact time units. IC4 (with TIS's
+  GenTL producer) supports Windows and Linux, not macOS. On a Mac the DFK
+  would fall back to UVC through AVFoundation, or to the open-source
+  Aravis GenICam library (to check).
 
   Shortlist (2026-10-14; verify current specs and mounts before buying):
 

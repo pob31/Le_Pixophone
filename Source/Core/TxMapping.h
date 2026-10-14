@@ -34,6 +34,22 @@ float blurBias (float raw);     // /1270
 /** `camput lvl`: wclvl/127 × √(master/127 × camOn) (§3.1; √ master — D14). */
 float cameraLevel (float cameraLevelRaw, float masterRaw, float cameraOn);
 
+/** `cam col r g b`: M·C / 127² per channel (§3.1). */
+std::array<float, 3> maskColor (float m, float r, float g, float b);
+
+/** `cam blur`: v / 133 (pix_motionblur's feedback amount, 0–0.955). */
+float motionBlur (float raw);
+
+/** The inversion Tx sends as `cai inv` (and Rx publishes as CamInv): the
+    manual mode (1 = P) XOR mask bypass (Q12 quirk, kept). Auto mode (2)
+    keeps the state the motion analysis last decided (`autoState`). */
+bool cameraInverted (int invertMode, bool maskBypass, bool autoState);
+
+/** Which camera FBO a bokeh pass reads as depth, 2 or 3 (§2.4). blurMode
+    3 follows CamInv, 4 its opposite; 0–2 fix it. STRIP never opened its
+    mode-4 gate, so there mode 4 keeps the previous unit (Q5 quirk). */
+int depthUnit (int blurMode, bool camInv, int previousUnit, bool isStrip);
+
 /** A 0–127 controller value across a device control's range, snapped to its step. */
 long toDeviceRange (float raw, long minValue, long maxValue, long step);
 

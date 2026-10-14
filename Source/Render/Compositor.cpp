@@ -1,6 +1,7 @@
 #include "Render/Compositor.h"
 
 #include <algorithm>
+#include <cmath>
 
 #include "Core/GemSpace.h"
 #include "Render/shaders/gem.glsl.h"
@@ -14,6 +15,10 @@ namespace
 constexpr int mixBufferSize = 1024;             // MIXOUTPUT: gemframebuffer dimen 1024 1024
 constexpr float mixSquareHalfSize = 4.04f;      // [square 4.04]
 constexpr float layerZ = -4.0f;                 // [translateXYZ 0 0 -4]
+
+// The camera FBOs draw [square 4.04] into the ±4 view: they show the central
+// 4 / 4.04 of the camera image.
+constexpr float cameraFboUvScale = 4.0f / 4.04f;
 
 // MIXOUTPUT draws its four images bottom to top in this slot order (§2.4).
 constexpr int mixDrawOrder[] = { 2, 3, 0, 1 };
@@ -90,14 +95,18 @@ bool Compositor::initialise (std::string& error)
         testPatternPipeline = sg_make_pipeline (&desc);
     }
 
+    for (auto* pipeline : { &chainPipeline, &coloralphaPipeline })
     {
         sg_pipeline_desc desc {};
-        desc.shader = sg_make_shader (camera_process_shader_desc (backend));
+        desc.shader = sg_make_shader (pipeline == &chainPipeline ? camera_chain_shader_desc (backend)
+                                                                 : coloralpha_shader_desc (backend));
         desc.colors[0].pixel_format = SG_PIXELFORMAT_RGBA8;
         desc.depth.pixel_format = SG_PIXELFORMAT_NONE;
-        desc.label = "camera-process";
-        cameraPipeline = sg_make_pipeline (&desc);
+        desc.label = pipeline == &chainPipeline ? "camera-chain" : "coloralpha";
+        *pipeline = sg_make_pipeline (&desc);
     }
+
+    maskedPipeline = makeOffscreenPipeline (gem_masked_shader_desc (backend), true, "gem-masked");
 
     {
         sg_pipeline_desc desc {};      // swapchain: environment defaults (BGRA8, no depth)
@@ -106,7 +115,8 @@ bool Compositor::initialise (std::string& error)
         blitPipeline = sg_make_pipeline (&desc);
     }
 
-    for (auto pipeline : { quadPipeline, bokehPipeline, testPatternPipeline, cameraPipeline, blitPipeline })
+    for (auto pipeline : { quadPipeline, bokehPipeline, testPatternPipeline, chainPipeline,
+                           coloralphaPipeline, maskedPipeline, blitPipeline })
     {
         if (sg_query_pipeline_state (pipeline) != SG_RESOURCESTATE_VALID)
         {
@@ -253,7 +263,14 @@ void Compositor::uploadCameraFrame (const CameraFrame& frame)
         cameraRaw.width = frame.width;
         cameraRaw.height = frame.height;
 
+        for (auto& target : depthChain)
+            ensureTarget (target, frame.width, frame.height, "camera-depth");
+
+        for (auto& target : liveChain)
+            ensureTarget (target, frame.width, frame.height, "camera-live-chain");
+
         ensureTarget (cameraLive, frame.width, frame.height, "camera-live");
+        lastCameraTickMs = -1.0e9;  // run the chains on the next frame
     }
 
     sg_write_buffer_desc write {};
@@ -268,25 +285,58 @@ void Compositor::uploadCameraFrame (const CameraFrame& frame)
     copy.dst.image = cameraRaw.image;
     copy.size = { frame.width, frame.height, 1 };
     sg_copy_buffer_to_image (&copy);
-
-    cameraFrameWaiting = true;
 }
 
-void Compositor::processCamera()
+void Compositor::runChainPass (RenderTarget& target, const sg_view& previous, bool invert, float uvScale,
+                               const ParameterStore::Snapshot& params)
 {
-    auto pass = offscreenPass (cameraLive.colorView, 0.0f, 0.0f, 0.0f, 1.0f, "camera-process");
+    auto pass = offscreenPass (target.colorView, 0.0f, 0.0f, 0.0f, 1.0f, "camera-chain");
     sg_begin_pass (&pass);
-    sg_apply_pipeline (cameraPipeline);
+    sg_apply_pipeline (chainPipeline);
 
     sg_bindings bindings {};
-    bindings.views[VIEW_tex] = cameraRaw.view;
+    bindings.views[VIEW_raw_tex] = cameraRaw.view;
+    bindings.views[VIEW_previous_tex] = previous;
+    bindings.samplers[SMP_smp] = linearClamp;
+    sg_apply_bindings (&bindings);
+
+    chain_params_t chainParams {};
+    chainParams.levels[0] = params[ParamId::levelInLow] / 127.0f;
+    chainParams.levels[1] = params[ParamId::levelInHigh] / 127.0f;
+    chainParams.levels[2] = params[ParamId::levelOutLow] / 127.0f;
+    chainParams.levels[3] = params[ParamId::levelOutHigh] / 127.0f;
+    chainParams.options[0] = invert ? 1.0f : 0.0f;
+    chainParams.options[1] = std::min (txmap::motionBlur (params[ParamId::cameraBlur]), 1.0f);
+    chainParams.options[2] = uvScale;
+    sg_apply_uniforms (UB_chain_params, SG_RANGE (chainParams));
+
+    sg_draw (0, 3, 1);
+    sg_end_pass();
+}
+
+void Compositor::runCameraChains (const ParameterStore::Snapshot& params, bool inverted)
+{
+    // Ping-pong: write the other target, reading the current one as the
+    // motion blur's previous frame.
+    const auto previous = static_cast<std::size_t> (chainCurrent);
+    const auto next = static_cast<std::size_t> (1 - chainCurrent);
+
+    runChainPass (depthChain[next], depthChain[previous].textureView, false, cameraFboUvScale, params);
+    runChainPass (liveChain[next], liveChain[previous].textureView, inverted, 1.0f, params);
+    chainCurrent = static_cast<int> (next);
+
+    auto pass = offscreenPass (cameraLive.colorView, 0.0f, 0.0f, 0.0f, 0.0f, "coloralpha");
+    sg_begin_pass (&pass);
+    sg_apply_pipeline (coloralphaPipeline);
+
+    sg_bindings bindings {};
+    bindings.views[VIEW_tex] = liveChain[next].textureView;
     bindings.samplers[SMP_smp] = linearClamp;
     sg_apply_bindings (&bindings);
 
     sg_draw (0, 3, 1);
     sg_end_pass();
 
-    cameraFrameWaiting = false;
     cameraHasPicture = true;
 }
 
@@ -329,19 +379,37 @@ void Compositor::renderFrame (const ParameterStore::Snapshot& params, const Comp
     // depth texture is black, as with the camera off.
     const auto blurMode = static_cast<int> (params[ParamId::mixBlurMode]);
 
+    // CAMERA (§2.7): the chains run on the legacy tick (D14), on the latest
+    // camera image, whether or not a new one arrived, as GEM's frame loop did.
+    const bool maskBypass = params[ParamId::maskBypass] > 0.5f;
+    const bool camInv = txmap::cameraInverted (static_cast<int> (params[ParamId::invertMode]), maskBypass, false);
+    const double tickMs = 1000.0 / std::max (static_cast<double> (params[ParamId::cameraTickHz]), 1.0);
+
+    if (cameraRaw.image.id != SG_INVALID_ID && nowMs - lastCameraTickMs >= tickMs)
+    {
+        runCameraChains (params, camInv);
+
+        // Keep the tick's phase; after a stall, resume from now.
+        lastCameraTickMs = nowMs - lastCameraTickMs > 2.0 * tickMs ? nowMs : lastCameraTickMs + tickMs;
+    }
+
     CompositeState state;
     state.geometry = geometry;
     state.mixVisible = mixVisible;
     state.focus = txmap::blurFocus (params[ParamId::mixFocus]);
     state.bias = blurMode == 0 ? 0.0f : txmap::blurBias (params[ParamId::mixBias]);
 
-    // CAMERA (§2.7): process new frames, then the live layer's level.
-    if (cameraFrameWaiting)
-        processCamera();
+    // MIX's depth: tex unit 2 (the depth chain) or 3 (its "inverted" copy).
+    mixDepthUnit = txmap::depthUnit (blurMode, camInv, mixDepthUnit, false);
+    state.mixDepth = cameraHasPicture ? depthChain[static_cast<std::size_t> (chainCurrent)].textureView : opaqueBlack.view;
+    state.mixDepthInverted = mixDepthUnit == 3 && compat.realInvertedDepth;
 
     state.cameraAlpha = cameraLevelRamp.update (txmap::cameraLevel (params[ParamId::cameraLevel],
                                                                      params[ParamId::masterLevel],
                                                                      params[ParamId::cameraOn]), nowMs);
+    state.maskColor = txmap::maskColor (params[ParamId::maskColorM], params[ParamId::maskColorR],
+                                        params[ParamId::maskColorG], params[ParamId::maskColorB]);
+    state.maskOn = ! maskBypass;
 
     renderComposite (state);
 }
@@ -395,7 +463,7 @@ void Compositor::renderComposite (const CompositeState& state)
 
         sg_bindings bindings {};
         bindings.views[VIEW_rendered_tex] = mixTarget.textureView;
-        bindings.views[VIEW_depth_tex] = opaqueBlack.view;
+        bindings.views[VIEW_depth_tex] = state.mixDepth;
         bindings.samplers[SMP_smp] = linearClamp;
         sg_apply_bindings (&bindings);
 
@@ -403,6 +471,7 @@ void Compositor::renderComposite (const CompositeState& state)
         bokeh_params_t bokehParams {};
         bokehParams.focus_bias[0] = state.focus;
         bokehParams.focus_bias[1] = state.bias;
+        bokehParams.focus_bias[2] = state.mixDepthInverted ? 1.0f : 0.0f;
 
         sg_apply_uniforms (UB_vs_params, SG_RANGE (vsParams));
         sg_apply_uniforms (UB_bokeh_params, SG_RANGE (bokehParams));
@@ -411,9 +480,35 @@ void Compositor::renderComposite (const CompositeState& state)
 
     // CAMERAOUTPUT: the live camera on the output quad, not HEAD-gated (§2.2).
     if (cameraHasPicture && state.cameraAlpha > 0.0f)
-        drawGemQuad (cameraLive.textureView, g, state.cameraAlpha);
+        drawMaskedQuad (cameraLive.textureView, g, state.cameraAlpha, state.maskColor, state.maskOn);
 
     sg_end_pass();
+}
+
+void Compositor::drawMaskedQuad (const sg_view& texture, const txmap::Geometry& g, float alpha,
+                                 const std::array<float, 3>& maskColor, bool maskOn)
+{
+    const auto aspect = static_cast<float> (composite.width) / static_cast<float> (composite.height);
+    const auto mvp = gemProjection (aspect, zeroToOneDepth) * gemModel (g.tx, g.ty, g.tz, g.rx, g.ry, g.rz);
+
+    sg_apply_pipeline (maskedPipeline);
+
+    sg_bindings bindings {};
+    bindings.views[VIEW_tex] = texture;
+    bindings.samplers[SMP_smp] = linearClamp;
+    sg_apply_bindings (&bindings);
+
+    const auto vsParams = quadParams (mvp, g.width, g.height);
+    mask_params_t maskParams {};
+    maskParams.mask[0] = maskColor[0];
+    maskParams.mask[1] = maskColor[1];
+    maskParams.mask[2] = maskColor[2];
+    maskParams.mask[3] = alpha;
+    maskParams.enable[0] = maskOn ? 1.0f : 0.0f;
+
+    sg_apply_uniforms (UB_vs_params, SG_RANGE (vsParams));
+    sg_apply_uniforms (UB_mask_params, SG_RANGE (maskParams));
+    sg_draw (0, 4, 1);
 }
 
 void Compositor::drawGemQuad (const sg_view& texture, const txmap::Geometry& g, float alpha)

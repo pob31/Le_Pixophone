@@ -72,13 +72,21 @@ private:
         bool mixVisible = false;
         float focus = 0.0f;
         float bias = 0.0f;
-        float cameraAlpha = 0.0f;   // CAMERAOUTPUT's colourRGB alpha (camput lvl)
+        sg_view mixDepth {};            // the camera "depth" the MIX bokeh reads (§2.4)
+        bool mixDepthInverted = false;  // compat realInvertedDepth on tex unit 3
+        float cameraAlpha = 0.0f;       // CAMERAOUTPUT's colourRGB alpha (camput lvl)
+        std::array<float, 3> maskColor {};
+        bool maskOn = true;             // [pix_color] on, i.e. not bypassed
     };
 
     void renderMixBuffer (const std::array<float, 4>& weights, float level);
-    void processCamera();
+    void runCameraChains (const ParameterStore::Snapshot& params, bool inverted);
+    void runChainPass (RenderTarget& target, const sg_view& previous, bool invert, float uvScale,
+                       const ParameterStore::Snapshot& params);
     void renderComposite (const CompositeState& state);
     void drawGemQuad (const sg_view& texture, const txmap::Geometry& g, float alpha);
+    void drawMaskedQuad (const sg_view& texture, const txmap::Geometry& g, float alpha,
+                         const std::array<float, 3>& maskColor, bool maskOn);
     void renderTestPattern (double nowMs);
 
     bool zeroToOneDepth = true;
@@ -87,7 +95,9 @@ private:
     sg_pipeline quadPipeline {};        // offscreen, alpha-blended (GEM [alpha])
     sg_pipeline bokehPipeline {};       // offscreen, opaque
     sg_pipeline testPatternPipeline {}; // offscreen
-    sg_pipeline cameraPipeline {};      // offscreen, camera-sized
+    sg_pipeline chainPipeline {};       // offscreen, camera-sized: invert, levels, motion blur
+    sg_pipeline coloralphaPipeline {};  // offscreen, camera-sized
+    sg_pipeline maskedPipeline {};      // offscreen, alpha-blended: [pix_color] quads
     sg_pipeline blitPipeline {};        // swapchain
 
     Texture transparentBlack;           // an empty pix_buffer slot
@@ -97,14 +107,21 @@ private:
     RenderTarget mixTarget;             // MIXOUTPUT's gemframebuffer, 1024×1024
     RenderTarget composite;             // the finished picture, output-sized
 
-    // Camera: frames arrive through a staging buffer into `cameraRaw`; the
-    // camera pass turns that into `cameraLive` (the CAMERA chain, §2.7).
+    // Camera: frames arrive through a staging buffer into `cameraRaw`. On
+    // each legacy tick (D14) the two chains run (§2.7): the depth chain into
+    // `depthChain` (tex unit 2), the live chain into `liveChain` and then,
+    // with its colour-alpha, into `cameraLive`. Each chain ping-pongs between
+    // two targets for its motion-blur feedback.
     sg_buffer cameraStaging {};
     std::size_t cameraStagingSize = 0;
     Texture cameraRaw;
+    std::array<RenderTarget, 2> depthChain;
+    std::array<RenderTarget, 2> liveChain;
+    int chainCurrent = 0;
     RenderTarget cameraLive;
-    bool cameraFrameWaiting = false;
     bool cameraHasPicture = false;
+    double lastCameraTickMs = -1.0e9;
+    int mixDepthUnit = 2;               // §2.4: the tex unit MIX's bokeh last selected
 
     txmap::GeometryMapper geometryMapper;
     std::array<LineRamp, 8> geometryRamps { LineRamp (300), LineRamp (300), LineRamp (300), LineRamp (300),

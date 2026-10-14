@@ -686,6 +686,14 @@ receives), `MIDI_merge.ini`, and the Arduino `Touchpad_LEDpwm` sketch.
   noise, and should be checked against `Documentation/reference/`. The 15 fps output rate was **not**
   part of the look — it was the hardware limit (Q1). Render at display rate;
   only loop capture keeps 15 fps by default (D12).
+- GEM camera objects as ported (assumed semantics; check against a real GEM
+  if one is ever available). All are 8-bit, per frame of the legacy tick:
+  - `pix_invert` = 1 − rgb.
+  - `pix_levels` with `inLo inHi outLo outHi` = a linear map of
+    [inLo, inHi] onto [outLo, outHi], clamped, the same on r, g and b.
+  - `pix_motionblur` = feedback, out = in·(1 − b) + previous·b.
+  - `pix_coloralpha` = alpha from the average of r, g and b.
+  - `pix_color r g b` = replaces the colour and keeps the alpha.
 - Master level: per layer, with the original curves (√ or linear), as in
   patch114 (Q11, D14). A final-gain mode exists only as a compat flag.
 - Quirks are reproduced, each behind a named compat flag that defaults to the

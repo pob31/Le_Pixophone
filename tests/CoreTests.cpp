@@ -88,6 +88,31 @@ void testCameraMapping()
     CHECK (txmap::toDeviceRange (64.0f, 0, 255, 5) % 5 == 0);
 }
 
+void testCameraChainMapping()
+{
+    const auto white = txmap::maskColor (127.0f, 127.0f, 127.0f, 127.0f);
+    CHECK_NEAR (white[0], 1.0, 1e-6);
+    CHECK_NEAR (txmap::maskColor (127.0f, 127.0f, 0.0f, 63.5f)[2], 0.5, 1e-6);
+    CHECK_NEAR (txmap::maskColor (63.5f, 127.0f, 127.0f, 127.0f)[1], 0.5, 1e-6);   // M dims all three
+    CHECK_NEAR (txmap::motionBlur (133.0f), 1.0, 1e-6);
+
+    // Q12: bypass flips the inversion.
+    CHECK (! txmap::cameraInverted (0, false, false));
+    CHECK (txmap::cameraInverted (1, false, false));
+    CHECK (txmap::cameraInverted (0, true, false));
+    CHECK (! txmap::cameraInverted (1, true, false));
+    CHECK (txmap::cameraInverted (2, false, true));        // auto: the analysed state
+
+    // §2.4 depth units; Q5: STRIP mode 4 keeps whatever it had.
+    CHECK (txmap::depthUnit (1, true, 3, false) == 2);
+    CHECK (txmap::depthUnit (2, false, 2, false) == 3);
+    CHECK (txmap::depthUnit (3, true, 2, false) == 3);
+    CHECK (txmap::depthUnit (4, true, 2, false) == 2);
+    CHECK (txmap::depthUnit (4, false, 2, false) == 3);
+    CHECK (txmap::depthUnit (4, false, 2, true) == 2);
+    CHECK (txmap::depthUnit (0, false, 3, false) == 3);
+}
+
 void testAspect()
 {
     struct Preset { const char* name; float slider; double ratio; };
@@ -215,6 +240,7 @@ int main()
     testMix();
     testGeometryFormulas();
     testCameraMapping();
+    testCameraChainMapping();
     testAspect();
     testGeometryMapperQuirk();
     testGemSpace();

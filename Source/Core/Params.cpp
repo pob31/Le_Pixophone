@@ -35,6 +35,18 @@ constexpr ParamDef definitions[] = {
     { ParamId::exposureAuto,   "exposureAuto",   "Exposure auto",    "Camera",   0.0f,   1.0f,   1.0f, true },
     { ParamId::gainAuto,       "gainAuto",       "Gain auto",        "Camera",   0.0f,   1.0f,   1.0f, true },
     { ParamId::whiteBalanceAuto, "whiteBalanceAuto", "White bal. auto", "Camera", 0.0f,  1.0f,   1.0f, true },
+    { ParamId::maskColorM,     "maskColorM",     "Mask colour M",    "Camera chain", 0.0f, 127.0f, 127.0f, true },
+    { ParamId::maskColorR,     "maskColorR",     "Mask colour R",    "Camera chain", 0.0f, 127.0f, 127.0f, true },
+    { ParamId::maskColorG,     "maskColorG",     "Mask colour G",    "Camera chain", 0.0f, 127.0f, 127.0f, true },
+    { ParamId::maskColorB,     "maskColorB",     "Mask colour B",    "Camera chain", 0.0f, 127.0f, 127.0f, true },
+    { ParamId::maskBypass,     "maskBypass",     "Mask bypass",      "Camera chain", 0.0f,   1.0f,   0.0f, true },
+    { ParamId::levelInLow,     "levelInLow",     "Levels in low",    "Camera chain", 0.0f, 127.0f,   0.0f, true },
+    { ParamId::levelInHigh,    "levelInHigh",    "Levels in high",   "Camera chain", 0.0f, 127.0f, 127.0f, true },
+    { ParamId::levelOutLow,    "levelOutLow",    "Levels out low",   "Camera chain", 0.0f, 127.0f,   0.0f, true },
+    { ParamId::levelOutHigh,   "levelOutHigh",   "Levels out high",  "Camera chain", 0.0f, 127.0f, 127.0f, true },
+    { ParamId::cameraBlur,     "cameraBlur",     "Motion blur",      "Camera chain", 0.0f, 127.0f,   0.0f, true },
+    { ParamId::invertMode,     "invertMode",     "Invert N/P/A",     "Camera chain", 0.0f,   2.0f,   0.0f, true },
+    { ParamId::cameraTickHz,   "cameraTickHz",   "Camera tick (Hz)", "Camera chain", 5.0f,  60.0f,  15.0f, true },
     { ParamId::testPattern,    "testPattern",    "Test pattern",     "Output",   0.0f,   1.0f,   0.0f, true },
 };
 

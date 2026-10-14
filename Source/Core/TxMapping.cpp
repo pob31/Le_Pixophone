@@ -37,6 +37,35 @@ float cameraLevel (float cameraLevelRaw, float masterRaw, float cameraOn)
     return cameraLevelRaw / 127.0f * std::sqrt (masterRaw / 127.0f * cameraOn);
 }
 
+std::array<float, 3> maskColor (float m, float r, float g, float b)
+{
+    constexpr float scale = 1.0f / (127.0f * 127.0f);
+    return { m * r * scale, m * g * scale, m * b * scale };
+}
+
+float motionBlur (float raw)
+{
+    return raw / 133.0f;
+}
+
+bool cameraInverted (int invertMode, bool maskBypass, bool autoState)
+{
+    const bool inverted = invertMode == 2 ? autoState : invertMode == 1;
+    return inverted != maskBypass;
+}
+
+int depthUnit (int blurMode, bool camInv, int previousUnit, bool isStrip)
+{
+    switch (blurMode)
+    {
+        case 1:  return 2;
+        case 2:  return 3;
+        case 3:  return camInv ? 3 : 2;
+        case 4:  return isStrip ? previousUnit : (camInv ? 2 : 3);
+        default: return previousUnit;     // mode 0: bias is 0, the depth doesn't matter
+    }
+}
+
 long toDeviceRange (float raw, long minValue, long maxValue, long step)
 {
     const auto span = static_cast<double> (maxValue - minValue);
