@@ -5,9 +5,6 @@ namespace pixo
 namespace
 {
 
-/** The light table's red, as the output's test-pattern tint. */
-const juce::Colour outputTint { 0xffd2452a };
-
 /** A projector is usually a secondary display: prefer the first non-main one. */
 int defaultOutputDisplay()
 {
@@ -23,7 +20,7 @@ int defaultOutputDisplay()
 } // namespace
 
 OutputWindow::OutputWindow (RenderEngine& engine)
-    : surface (engine, SurfaceRole::output, outputTint),
+    : surface (engine, SurfaceRole::output),
       displayIndex (defaultOutputDisplay())
 {
     setName ("Le Pixophone - Output");

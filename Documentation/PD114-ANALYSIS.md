@@ -113,10 +113,16 @@ pad net gem` (anything else is printed). Rx sends back only `cai 0 <motion>`
 
 All presets use `cursor 0` and `view 0 0 0`, which puts the eye at the origin
 looking down −Z. GEM's default projection is the frustum
-`perspec -1 1 -1 1 1 20`. It is **not** aspect-corrected, so a plane at
-z = −4 spans ±4 units in both x and y whatever the window shape. Output
-aspect is fixed by the global `width`/`height` geometry (§2.8), not by the
-projection. `gem render 0|1` toggles rendering; `gem reset` resets gemwin.
+`perspec -1 1 -1 1 1 20`, **with x widened by the window's aspect ratio**.
+So a plane at z = −4 spans ±4 units vertically and ±4·aspect horizontally:
+±7.11 on 16:9, ±5.33 on 4:3. (Corrected 2026-10-14; the first version of
+this spec said "not aspect-corrected". Tx's §3.4 constants prove it: the
+16:9 width clamp `Wc = 7` ≈ 7.11, the 4:3 one `Wc = 5.33`, and the 16:9
+preset gives 7.08 / 4 = 1.77. The STRIP's `rectangle 5.33 4` exactly
+filling its 1024×768 buffer shows `gemframebuffer` does the same.) The
+picture's shape comes from the global `width`/`height` geometry (§2.8),
+chosen per projector ratio. `gem render 0|1` toggles rendering;
+`gem reset` resets gemwin. Port: `Source/Core/GemSpace.*`, unit-tested.
 
 GEM transformation objects (`translateXYZ`, `rotateXYZ`) act on the GL matrix
 stack, which is only saved and restored by `[separator]`. Without a separator,
@@ -158,6 +164,14 @@ standard alpha blending and no depth test.
 
 The `load*` message bodies go straight to `pix_buffer` (`open <file> <slot>`).
 Tx expands presets into these messages (§3).
+
+The photos are not square: `images1024/` files are 1024 wide and 676–1024
+tall. A slot holds the file at its own size, and `pix_texture` maps the
+**whole image onto the quad**, so each photo is stretched to fill the
+square buffer and its own aspect is lost. The final shape comes from the
+output geometry (§3.4). The port reproduces this (D14). A missing or
+unreadable file leaves the slot's previous image in place, as `pix_buffer`
+did.
 
 ### 2.4 MIX (MIXOUTPUT)
 

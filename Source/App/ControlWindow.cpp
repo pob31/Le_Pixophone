@@ -1,8 +1,11 @@
 #include "App/ControlWindow.h"
 
 #include "App/OutputWindow.h"
+#include "Media/MediaLibrary.h"
 #include "Render/GpuSurfaceComponent.h"
 #include "Render/RenderEngine.h"
+#include "UI/MediaPanel.h"
+#include "UI/ParameterPanel.h"
 
 namespace pixo
 {
@@ -10,9 +13,7 @@ namespace
 {
 
 const juce::Colour backgroundColour { 0xff151515 };
-
-/** Teal, as in the reference frames, to tell the preview from the output. */
-const juce::Colour previewTint { 0xff3fa7a3 };
+constexpr int sidePanelWidth = 420;
 
 juce::String describeDisplay (const juce::Displays::Display& display, int index)
 {
@@ -28,16 +29,18 @@ class ControlPanel final : public juce::Component,
                            private juce::Timer
 {
 public:
-    ControlPanel (RenderEngine& engineIn, OutputWindow& outputIn)
+    ControlPanel (RenderEngine& engineIn, OutputWindow& outputIn, ParameterStore& params, MediaLibrary& media)
         : engine (engineIn),
           output (outputIn),
-          preview (engineIn, SurfaceRole::preview, previewTint)
+          preview (engineIn, SurfaceRole::preview),
+          mediaPanel (media),
+          parameterPanel (params)
     {
         title.setText ("Le Pixophone", juce::dontSendNotification);
         title.setFont (juce::FontOptions (22.0f, juce::Font::bold));
         addAndMakeVisible (title);
 
-        subtitle.setText ("P0 scaffold - render engine test pattern", juce::dontSendNotification);
+        subtitle.setText ("P1 - MIX layer and geometry (parameter test bench)", juce::dontSendNotification);
         subtitle.setColour (juce::Label::textColourId, juce::Colours::grey);
         addAndMakeVisible (subtitle);
 
@@ -61,6 +64,12 @@ public:
         statusLabel.setJustificationType (juce::Justification::topLeft);
         addAndMakeVisible (statusLabel);
 
+        addAndMakeVisible (mediaPanel);
+
+        parameterView.setViewedComponent (&parameterPanel, false);
+        parameterView.setScrollBarsShown (true, false);
+        addAndMakeVisible (parameterView);
+
         output.onPlacementChanged = [this] { syncWithOutput(); };
 
         refreshDisplays();
@@ -81,6 +90,14 @@ public:
     void resized() override
     {
         auto area = getLocalBounds().reduced (16);
+
+        auto side = area.removeFromRight (sidePanelWidth);
+        area.removeFromRight (16);
+        mediaPanel.setBounds (side.removeFromTop (MediaPanel::preferredHeight));
+        side.removeFromTop (8);
+        parameterView.setBounds (side);
+        parameterPanel.setSize (side.getWidth() - parameterView.getScrollBarThickness() - 4,
+                                parameterPanel.getContentHeight());
 
         title.setBounds (area.removeFromTop (30));
         subtitle.setBounds (area.removeFromTop (22));
@@ -148,6 +165,9 @@ private:
     juce::Label title;
     juce::Label subtitle;
     GpuSurfaceComponent preview;
+    MediaPanel mediaPanel;
+    ParameterPanel parameterPanel;
+    juce::Viewport parameterView;
     juce::Label displayLabel;
     juce::ComboBox displayBox;
     juce::ToggleButton fullscreenToggle;
@@ -158,15 +178,15 @@ private:
 
 } // namespace
 
-ControlWindow::ControlWindow (RenderEngine& engine, OutputWindow& output)
+ControlWindow::ControlWindow (RenderEngine& engine, OutputWindow& output, ParameterStore& params, MediaLibrary& media)
     : juce::DocumentWindow ("Le Pixophone", backgroundColour,
                             juce::DocumentWindow::minimiseButton | juce::DocumentWindow::closeButton)
 {
     setUsingNativeTitleBar (true);
-    setContentOwned (new ControlPanel (engine, output), false);
+    setContentOwned (new ControlPanel (engine, output, params, media), false);
     setResizable (true, false);
-    setResizeLimits (640, 480, 4096, 4096);
-    centreWithSize (960, 720);
+    setResizeLimits (960, 600, 4096, 4096);
+    centreWithSize (1360, 800);
     setVisible (true);
 }
 

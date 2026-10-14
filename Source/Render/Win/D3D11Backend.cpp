@@ -12,7 +12,7 @@
 
 #include <windows.h>
 #include <d3d11.h>
-#include <dxgi1_2.h>
+#include <dxgi1_6.h>
 #include <wrl/client.h>
 
 #include <cstdio>
@@ -122,6 +122,23 @@ private:
     int height = 0;
 };
 
+/** The adapter Windows ranks first for performance, or nullptr when the
+    query isn't available (pre-1803 Windows) or fails. */
+ComPtr<IDXGIAdapter1> findHighPerformanceAdapter()
+{
+    ComPtr<IDXGIFactory6> factory6;
+
+    if (FAILED (CreateDXGIFactory2 (0, IID_PPV_ARGS (&factory6))))
+        return nullptr;
+
+    ComPtr<IDXGIAdapter1> adapter;
+
+    if (FAILED (factory6->EnumAdapterByGpuPreference (0, DXGI_GPU_PREFERENCE_HIGH_PERFORMANCE, IID_PPV_ARGS (&adapter))))
+        return nullptr;
+
+    return adapter;
+}
+
 class D3D11Backend final : public GpuBackend
 {
 public:
@@ -129,8 +146,21 @@ public:
     {
         const D3D_FEATURE_LEVEL levels[] = { D3D_FEATURE_LEVEL_11_1, D3D_FEATURE_LEVEL_11_0 };
 
+        // D22: the high-performance GPU (the discrete one on hybrid laptops),
+        // falling back to the system default adapter.
+        const auto preferredAdapter = findHighPerformanceAdapter();
+
         const auto createDevice = [&] (UINT flags)
         {
+            if (preferredAdapter != nullptr)
+            {
+                const auto hr = D3D11CreateDevice (preferredAdapter.Get(), D3D_DRIVER_TYPE_UNKNOWN, nullptr, flags,
+                                                   levels, static_cast<UINT> (std::size (levels)), D3D11_SDK_VERSION,
+                                                   &device, nullptr, &context);
+                if (SUCCEEDED (hr))
+                    return hr;
+            }
+
             return D3D11CreateDevice (nullptr, D3D_DRIVER_TYPE_HARDWARE, nullptr, flags,
                                       levels, static_cast<UINT> (std::size (levels)), D3D11_SDK_VERSION,
                                       &device, nullptr, &context);

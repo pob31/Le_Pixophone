@@ -76,8 +76,8 @@ private:
 };
 
 //==============================================================================
-GpuSurfaceComponent::GpuSurfaceComponent (RenderEngine& engineIn, SurfaceRole roleIn, juce::Colour tintIn)
-    : engine (engineIn), role (roleIn), tint (tintIn)
+GpuSurfaceComponent::GpuSurfaceComponent (RenderEngine& engineIn, SurfaceRole roleIn)
+    : engine (engineIn), role (roleIn)
 {
     setOpaque (true);
     setInterceptsMouseClicks (false, false);
@@ -110,7 +110,7 @@ void GpuSurfaceComponent::paint (juce::Graphics& g)
 void GpuSurfaceComponent::windowEmbedded (void* nativeWindow)
 {
     if (surfaceId == 0)
-        surfaceId = engine.attachSurface (nativeWindow, role, tint);
+        surfaceId = engine.attachSurface (nativeWindow, role);
 }
 
 } // namespace pixo

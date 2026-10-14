@@ -20,7 +20,7 @@ namespace pixo
 class GpuSurfaceComponent final : public juce::Component
 {
 public:
-    GpuSurfaceComponent (RenderEngine& engine, SurfaceRole role, juce::Colour tint);
+    GpuSurfaceComponent (RenderEngine& engine, SurfaceRole role);
     ~GpuSurfaceComponent() override;
 
     void paint (juce::Graphics&) override;
@@ -32,7 +32,6 @@ private:
 
     RenderEngine& engine;
     const SurfaceRole role;
-    const juce::Colour tint;
     SurfaceId surfaceId = 0;
     std::unique_ptr<Host> host;
 

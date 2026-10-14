@@ -1,0 +1,93 @@
+#pragma once
+
+#include <array>
+#include <atomic>
+#include <cstddef>
+
+namespace pixo
+{
+
+/** Parameters in the controller domain of the original Tx patch (D8): the
+    raw values its widgets held — mostly 0–127, the 14-bit NRPN ranges for
+    geometry. Renderer-domain values are derived from these by TxMapping,
+    exactly as Tx derived the messages it sent to Rx (PD114-ANALYSIS §3.1). */
+enum class ParamId : int
+{
+    // MIX (§2.4, §3.1)
+    mixX,
+    mixY,
+    mixLevel,       // Tx `mxlvl`
+    masterLevel,    // Tx `mstrlvl`
+    mixFocus,
+    mixBias,
+    mixBlurMode,
+
+    // GEOMETRY (§2.8, §3.4)
+    translateX,
+    translateY,
+    translateZ,
+    rotateX,
+    rotateY,
+    rotateZ,
+    aspect,
+    projectorRatio, // 0 = 16:9 projector, 1 = 4:3 projector
+
+    // Output utilities (not in the original)
+    testPattern,    // 0/1: show the alignment test pattern instead of the picture
+
+    count
+};
+
+constexpr std::size_t numParams = static_cast<std::size_t> (ParamId::count);
+
+struct ParamDef
+{
+    ParamId id;
+    const char* key;        // stable identifier, for settings and future presets/OSC
+    const char* label;
+    const char* group;
+    float minValue;
+    float maxValue;
+    float defaultValue;
+    bool integer;
+};
+
+const ParamDef& paramDef (ParamId id);
+
+/** Quirks reproduced from patch114 (D14). Each flag defaults to false = the
+    original behaviour; true opts into the fix. */
+struct CompatFlags
+{
+    bool projectorRatioRecompute = false;   // Q10: Tx only recomputed width/height when the aspect slider moved
+};
+
+/** Last-value parameter store shared by the control and render threads
+    (D15): any thread sets, the render thread reads a snapshot once per frame. */
+class ParameterStore
+{
+public:
+    ParameterStore();
+
+    float get (ParamId id) const noexcept;
+
+    /** Clamps to the parameter's range (and rounds integer parameters). */
+    void set (ParamId id, float value) noexcept;
+
+    void resetToDefaults() noexcept;
+
+    struct Snapshot
+    {
+        std::array<float, numParams> values {};
+
+        float operator[] (ParamId id) const noexcept { return values[static_cast<std::size_t> (id)]; }
+    };
+
+    Snapshot snapshot() const noexcept;
+
+    CompatFlags compat;     // set before the render thread starts
+
+private:
+    std::array<std::atomic<float>, numParams> values;
+};
+
+} // namespace pixo

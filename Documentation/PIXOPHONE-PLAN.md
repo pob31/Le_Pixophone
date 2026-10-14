@@ -1,12 +1,12 @@
 # Le Pixophone (new) — plan and decisions
 
-Status: **P0 scaffold done** (2026-10-14); next is P1. The reverse-engineered
+Status: **P1 Stills done** (2026-10-14); next is P2. The reverse-engineered
 spec of the original is `PD114-ANALYSIS.md`; this file records what we
 decided, the architecture, and the order of work.
 
 ## Decision records
 
-Numbered D1…; D22 is the next free number. A decision is changed by adding a
+Numbered D1…; D25 is the next free number. A decision is changed by adding a
 new record that supersedes it, not by editing the old one.
 
 | # | Decision | Why |
@@ -32,6 +32,9 @@ new record that supersedes it, not by editing the old one.
 | D19 | **sokol as pinned submodules.** `ThirdParty/sokol` (headers; commit 5e94d12, 2026-10-12) and `ThirdParty/sokol-tools-bin` (prebuilt `sokol-shdc` + its `sokol_shaders.cmake`; commit b975d56, 2026-10-11; **shallow**). Shaders live in `Source/Render/shaders/*.glsl` and are compiled at build time into `<build>/compile_shaders/`, in one language per platform: `hlsl5` (Windows), `metal_macos`, `glsl430` (Linux). Always bump sokol and sokol-tools-bin **together**, since the generated code must match the header. sokol's API moves fast: read `ThirdParty/sokol/CHANGELOG.md` before using a new area. Uploads changed in October 2026: staging buffers + `sg_copy_buffer_to_image`, no `sg_update_image`. | Pinned and reproducible. sokol-tools-bin's full history is ≈ 600 MB of old binaries, while a shallow clone is ≈ 56 MB for all platforms. Its own CMake helper picks the host binary. |
 | D20 | **GPU surfaces and the threading rule.** Each `GpuSurfaceComponent` owns a native child window positioned over it, using our own host rather than `juce::HWNDComponent`, which destroys its window immediately. **The message thread never blocks on the render thread.** Detaching is asynchronous: the render thread releases the swapchain and flushes, then the window is destroyed on the message thread. Quitting has two steps: `RenderEngine::stopAsync` releases swapchains and the device while the message loop still runs, then `quit()`. The output presents with vsync and paces the loop; previews present without waiting. | DXGI sends messages to a swapchain window's thread when swapchains and devices are released. A blocked message thread deadlocked P0's first design: the render thread was stuck until JUCE force-killed it after 4 s. After the change, 20/20 quits took 0.12–0.15 s. |
 | D21 | **Back buffers are 8-bit BGRA UNORM: no sRGB conversion, no depth buffer.** Layers are alpha-blended in painter's order in gamma-encoded space, as GEM did. | Faithful blending (D14). sRGB conversion would change every crossfade, flash and decay curve. |
+| D22 | **Hardware acceleration on the high-performance GPU.** The device is created on the adapter Windows ranks first for performance (`DXGI_GPU_PREFERENCE_HIGH_PERFORMANCE`: the discrete GPU on hybrid laptops), falling back to the default adapter. Video paths should stay on the GPU where the hardware allows (e.g. hardware camera-stream decoding, P2). A manual adapter choice comes later (R4). | Author: "the app will use video hardware acceleration". Measured on the dev laptop: the NVIDIA RTX PRO 2000 renders at 60 fps, presenting through the Intel-driven internal display; device start-up takes ≈ 2.4 s while the discrete GPU wakes. |
+| D23 | **Render once, show everywhere.** The `Compositor` renders each frame into an offscreen composite at the output window's size, whose aspect drives GEM's projection. Every window (output, previews) then blits that composite, letterboxed. Layers render into their own buffers first (MIX: 1024², as `gemframebuffer`). | The preview is exactly what the projector shows, and the picture is rendered only once whatever the number of windows. |
+| D24 | **Pure core + tests; scriptable start.** Logic that is pure maths lives in `Source/Core/` (no JUCE): parameters, the Tx formulas, GEM space, Pd `line` ramps, preset parsing. It is unit-tested against the spec by `pixo_core_tests` (CTest). The media root lives in the settings file (`%APPDATA%\Le Pixophone\Le Pixophone.settings`), with `PIXO_MEDIA_ROOT` as a fallback. `--set key=value` sets any parameter at start-up. | The formulas are where faithfulness is won or lost, so they're tested without a GPU. Scripted starts make visual checks reproducible: P1's blend was verified this way within 1.4/255 of a model of GEM's blending. |
 
 ## Architecture (proposed)
 
@@ -54,23 +57,29 @@ new record that supersedes it, not by editing the old one.
             └──────────────────────────────────────────────────────────┘
 ```
 
-Source layout (P0 created `App/` and `Render/`; the rest arrive with their
-phases):
+Source layout (P0 created `App/` and `Render/`, P1 `Core/`, `Media/` and
+`UI/`; the rest arrive with their phases):
 
 - `Source/Main.cpp` — application lifecycle, logging, the two-step quit (D20).
 - `Source/App/` — `ControlWindow` (performer's window: preview, output
   placement, status) and `OutputWindow` (borderless projector window).
-- `Source/Params/` — parameter store, definitions table, scaling and smoothing.
+- `Source/Core/` — pure C++, no JUCE (D24): `Params` (ids, definitions,
+  store, compat flags), `TxMapping` (Tx formulas), `GemSpace` (matrices, GEM
+  camera), `LineRamp` (Pd `line`), `PresetFile`, `DecodedImage`.
 - `Source/Control/` — MIDI profiles and router, feedback, footswitch matrix,
   FBV soft takeover, Firmata touchpads, automation.
-- `Source/Media/` — media root, image banks, preset loading (both formats, §4).
+- `Source/Media/` — `MediaLibrary`: media root, preset loading (both formats,
+  §4), background decoding, upload hand-off.
 - `Source/Camera/` — `CameraSource` interface and per-OS backends, motion analysis.
 - `Source/Render/` — `RenderEngine` (render thread, sokol, surfaces),
   `GpuSurfaceComponent` (JUCE side of a surface), `GpuBackend.h` (platform
   device/swapchain interface), `NativeSurfaceWindow.h`, `SokolImpl.cpp`,
   `Win/` (D3D11 backend and Win32 surface windows, free of JUCE headers),
-  `shaders/*.glsl` (sokol-shdc). Later: render graph and layers.
-- `Source/UI/` — control window panels mirroring the old layout (§3.5).
+  `shaders/*.glsl` (sokol-shdc), `Compositor` (the frame: layer buffers, the
+  composite, blits, D23).
+- `Source/UI/` — `ParameterPanel` (generated test bench), `MediaPanel`.
+  Later: panels mirroring the old layout (§3.5).
+- `tests/` — `CoreTests.cpp` (`pixo_core_tests`).
 - `tools/` — `setup.sh` (submodules), Pd analysis (`pd2txt.py`,
   `pdxref.py`), `bandmeter.py`.
 
@@ -83,7 +92,7 @@ against the spec's formulas.
 | Phase | Content | Done when |
 |---|---|---|
 | P0 Scaffold | CMake + JUCE submodule + vendored sokol + sokol-shdc build step; control window and borderless output window on a chosen display, both cleared by sokol (D3D11); CLAUDE.md build section | `cmake --build` makes an exe that opens both windows at vsync. **Done 2026-10-14**: Debug and Release build with zero warnings; output and preview render the sokol-shdc test pattern at 60 fps (D3D11 on the Intel Arc); `tools/bandmeter.py` measures the pattern's 15.0 cycles; clean quit (D20) |
-| P1 Stills | Parameter store + auto-generated debug panel; media root + preset loader; GEM camera space and geometry (§2.1, §3.4); MIX layer with XY weights; output quad | Loading `mixpreset0` and moving X/Y reproduces the old MIX blend |
+| P1 Stills | Parameter store + auto-generated debug panel; media root + preset loader; GEM camera space and geometry (§2.1, §3.4); MIX layer with XY weights; output quad | Loading `mixpreset0` and moving X/Y reproduces the old MIX blend. **Done 2026-10-14**: 76 unit checks pass; preset 0 loads at start-up as in the original; blends at (64, 64) and (100, 30) match a model of GEM's blending within 1.4/255; rotation, translation and aspect behave as the formulas predict; Debug runs clean under sokol validation |
 | P2 Camera | `CameraSource` (first backend: Windows) with manual exposure/gain/fps; camera chain; depth textures; bokeh shader port with blurModes; STRIP layer; CAMERA live layer | The hand-over-light-table mask works on MIX and STRIP |
 | P3 Loops and pads | Loop recorder (camcap1/2) with N/R capacity in system RAM (D16); SAMPLER players with transport in the engine; PAD layer with modes 0–3 incl. camera-loop pads | With the legacy preset (128 @ 15 fps), all §2.6 pad modes and §3.3 sampler transport behave as specified; larger N/R keep the same feel |
 | P4 Control | Real control UI; BCR2000/nanoPAD/FBV profiles with feedback and echo suppression; footswitch matrix; soft takeover; Firmata touchpads; mix loop; auto-invert; refresh modes; M_Reset | A show can be played from the controllers without touching the mouse |
@@ -204,8 +213,8 @@ against the spec's formulas.
   camera-to-photon latency target, behaviour when the camera, capture (D12)
   and projector rates differ. **Hybrid GPUs**:
   - The dev laptop has an Intel Arc 140T (drives the internal display) and
-    an NVIDIA RTX PRO 2000. D3D11 currently takes the default adapter (the
-    Intel); the control window shows which one.
+    an NVIDIA RTX PRO 2000. Since D22 the app takes the high-performance
+    one (the NVIDIA); the control window shows which.
   - The projector may be wired to either GPU, and rendering on one while
     presenting on the other costs a cross-adapter copy.
   - So add a user choice of adapter, and check where the projector port is
@@ -228,9 +237,14 @@ against the spec's formulas.
    (Q1–Q3, Q6–Q9, Q11) or settled by D14 (keep the original quirk, behind a
    compat flag).
 2. ~~P0 scaffold with JUCE 9.0.4 (D18)~~ — done (D19–D21).
-3. **P1 Stills**: parameter store + auto-generated debug panel, media root
-   and preset loader, GEM camera space and geometry, MIX layer. This is the
-   first use of sokol's new staging-buffer uploads (D19).
-4. R1 camera shortlist can run in parallel with P1, since P1 needs no camera.
-5. Preset media: the author checks his archives for missing strip images
+3. ~~P1 Stills~~ — done (D22–D24). Images upload as immutable textures
+   created with their data; sokol's staging buffers are needed only for
+   per-frame updates.
+4. **P2 Camera**: needs a camera with manual exposure/gain (R1, R3). Until the
+   chosen camera is on the desk, develop against any webcam through the
+   same `CameraSource` interface. Then the depth buffers feed the bokeh,
+   followed by STRIP and the live CAMERA layer. The camera stream uses
+   sokol's write-transient textures, decoded on the GPU where possible (D22).
+5. R1 camera shortlist can run in parallel.
+6. Preset media: the author checks his archives for missing strip images
    (and others). The loader must tolerate missing files either way.

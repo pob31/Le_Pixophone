@@ -8,9 +8,14 @@
 #include <mutex>
 #include <vector>
 
+#include "Core/DecodedImage.h"
+#include "Core/Params.h"
+#include "Core/PresetFile.h"
+
 namespace pixo
 {
 
+class Compositor;
 class GpuBackend;
 
 /** What a surface is for. The output paces the render loop (vsync); previews
@@ -37,7 +42,8 @@ using SurfaceId = int;
 class RenderEngine final : private juce::Thread
 {
 public:
-    RenderEngine();
+    /** The engine reads `params` once per frame (D15). */
+    explicit RenderEngine (ParameterStore& params);
 
     /** Call stopAsync() and wait for its callback first; destroying a
         running engine blocks the message thread (last-resort path). */
@@ -53,13 +59,17 @@ public:
 
     /** Message thread. The window must stay alive until the matching
         detachSurface() reports back. */
-    SurfaceId attachSurface (void* nativeWindow, SurfaceRole role, juce::Colour tint);
+    SurfaceId attachSurface (void* nativeWindow, SurfaceRole role);
 
     /** Message thread, non-blocking. `afterRelease` is called on the message
         thread once the render thread no longer uses the surface's window,
         which may then be destroyed. Called immediately if the engine has
         stopped. */
     void detachSurface (SurfaceId id, std::function<void()> afterRelease);
+
+    /** Any thread. Replaces an image-bank slot on the next frame (nullptr
+        clears it). The upload happens on the render thread. */
+    void setImage (ImageBank bank, int slot, std::shared_ptr<const DecodedImage> image);
 
     struct Status
     {
@@ -74,8 +84,7 @@ public:
 
 private:
     struct Surface;     // render-thread state of one attached window
-    struct Request;     // an attach or detach waiting for the render thread
-    struct GpuObjects;  // sokol pipelines and other GPU resources
+    struct Request;     // an attach, detach or image upload waiting for the render thread
 
     enum class LoopState
     {
@@ -93,9 +102,11 @@ private:
     void finishLoop();
     void setError (const juce::String& message);
 
+    ParameterStore& params;
+
     // Render thread only.
     std::unique_ptr<GpuBackend> backend;
-    std::unique_ptr<GpuObjects> gpu;
+    std::unique_ptr<Compositor> compositor;
     std::vector<std::unique_ptr<Surface>> surfaces;
     double statsStartMs = 0.0;
     int statsFrames = 0;

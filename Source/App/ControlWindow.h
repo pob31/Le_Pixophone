@@ -5,15 +5,18 @@
 namespace pixo
 {
 
+class MediaLibrary;
 class OutputWindow;
+class ParameterStore;
 class RenderEngine;
 
-/** The performer's window: output preview, output placement, engine status.
-    P0 scaffold — the real control surface (PD114-ANALYSIS §3.5) comes in P4. */
+/** The performer's window: output preview, output placement, engine status,
+    media and the parameter test bench. The real control surface
+    (PD114-ANALYSIS §3.5) comes in P4. */
 class ControlWindow final : public juce::DocumentWindow
 {
 public:
-    ControlWindow (RenderEngine& engine, OutputWindow& output);
+    ControlWindow (RenderEngine& engine, OutputWindow& output, ParameterStore& params, MediaLibrary& media);
 
     void closeButtonPressed() override;
 

@@ -5,8 +5,8 @@ audiovisual instrument. A camera on an enlarger films a light table, and the
 live image masks a mix of pinhole photographs. This repo ports the original Pure
 Data + GEM system (patch114, ca. 2010) to one native application.
 
-Status: **P0 scaffold done** (windows, render thread, sokol D3D11 test
-pattern; Windows only). Next: P1 (stills / MIX layer).
+Status: **P1 done** (MIX layer, geometry, presets, parameter test bench;
+Windows only). Next: P2 (camera).
 
 ## Build
 
@@ -14,6 +14,7 @@ pattern; Windows only). Next: P1 (stills / MIX layer).
 ./tools/setup.sh                          # after a fresh clone: submodules
 cmake -S . -B build
 cmake --build build --config Release      # or Debug (sokol validation + D3D11 debug layer)
+ctest --test-dir build -C Release         # pixo_core_tests: Tx formulas, GEM space, presets
 ```
 
 Binary: `build/LePixophone_artefacts/<config>/Le Pixophone.exe`. On this
@@ -23,9 +24,16 @@ machine CMake is the one bundled with Visual Studio 2026, not on PATH:
 clear error until P5. Runtime log: `%APPDATA%\Le Pixophone\pixophone.log`
 (engine, sokol and surface events, adapter name, device release check).
 
+Running: the media root (the old `Le_Pixophone` folder with `presets/`,
+`images1024/` ...) is chosen in the control window and saved in
+`%APPDATA%\Le Pixophone\Le Pixophone.settings`; `PIXO_MEDIA_ROOT` is the
+fallback. `--set key=value` (repeatable) sets any parameter at start-up, by
+its `ParamDef` key (e.g. `--set mixX=64 --set aspect=113`). Use it for
+reproducible visual checks.
+
 ## Where things are decided
 
-- `Documentation/PIXOPHONE-PLAN.md` — decision records (D1–D21; **D22 is the
+- `Documentation/PIXOPHONE-PLAN.md` — decision records (D1–D24; **D25 is the
   next free number**), architecture and source layout, phases P0–P5, research
   topics R1–R5, known issues, next steps. It wins over anything else here.
 - `Documentation/PD114-ANALYSIS.md` — reverse-engineered spec of the original:
@@ -73,8 +81,10 @@ clear error until P5. Runtime log: `%APPDATA%\Le Pixophone\pixophone.log`
 ## Repo shape
 
 - `Source/` — the application (layout in PIXOPHONE-PLAN "Source layout").
-  `Source/Render/Win/` holds Win32/D3D11 code and must stay free of JUCE
-  headers (`<windows.h>` clashes).
+  `Source/Core/` is pure C++ with no JUCE (unit-tested, D24); put formulas
+  and other pure logic there. `Source/Render/Win/` holds Win32/D3D11 code
+  and must stay free of JUCE headers (`<windows.h>` clashes).
+- `tests/` — `CoreTests.cpp`, a framework-free test executable run by CTest.
 - `ThirdParty/` — submodules: `JUCE` (9.0.4), `sokol`, `sokol-tools-bin`
   (shallow). Bump sokol and sokol-tools-bin together. sokol's API moves fast:
   read `ThirdParty/sokol/CHANGELOG.md` before using a new area.
@@ -98,7 +108,8 @@ clear error until P5. Runtime log: `%APPDATA%\Le Pixophone\pixophone.log`
   index.
 - GEM transforms leak between branches unless a `[separator]` restores the
   matrix. `[rectangle]`/`[square]` take **half** sizes. `view 0 0 0` with
-  the default ±1 frustum means z = −4 spans ±4 units, not aspect-corrected.
+  the default frustum (x widened by the window aspect) means z = −4 spans
+  ±4 vertically and ±4·aspect horizontally (spec §2.1, `Core/GemSpace`).
 
 ## Outside the repo
 

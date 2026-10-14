@@ -6,8 +6,8 @@
 #include <array>
 #include <string>
 
+#include "Render/Compositor.h"
 #include "Render/GpuBackend.h"
-#include "Render/shaders/testpattern.glsl.h"
 
 namespace pixo
 {
@@ -36,7 +36,6 @@ struct RenderEngine::Surface
 {
     SurfaceId id = 0;
     SurfaceRole role = SurfaceRole::preview;
-    std::array<float, 4> tint {};
     std::unique_ptr<GpuSwapchain> swapchain;
 };
 
@@ -45,25 +44,24 @@ struct RenderEngine::Request
     enum class Kind
     {
         attach,
-        detach
+        detach,
+        image
     };
 
     Kind kind = Kind::attach;
     SurfaceId id = 0;
     SurfaceRole role = SurfaceRole::preview;
-    std::array<float, 4> tint {};
     void* nativeWindow = nullptr;
-    std::function<void()> afterRelease;     // detach only
-};
-
-struct RenderEngine::GpuObjects
-{
-    sg_pipeline testPattern {};
+    std::function<void()> afterRelease;             // detach only
+    ImageBank bank = ImageBank::mix;                // image only
+    int slot = 0;                                   // image only
+    std::shared_ptr<const DecodedImage> image;      // image only
 };
 
 //==============================================================================
-RenderEngine::RenderEngine()
-    : juce::Thread ("Pixophone render")
+RenderEngine::RenderEngine (ParameterStore& paramsIn)
+    : juce::Thread ("Pixophone render"),
+      params (paramsIn)
 {
 }
 
@@ -95,13 +93,12 @@ void RenderEngine::stopAsync (std::function<void()> whenStopped)
     notify();   // wake the loop if it is pacing itself in wait()
 }
 
-SurfaceId RenderEngine::attachSurface (void* nativeWindow, SurfaceRole role, juce::Colour tint)
+SurfaceId RenderEngine::attachSurface (void* nativeWindow, SurfaceRole role)
 {
     auto request = std::make_shared<Request>();
     request->kind = Request::Kind::attach;
     request->id = nextSurfaceId++;
     request->role = role;
-    request->tint = { tint.getFloatRed(), tint.getFloatGreen(), tint.getFloatBlue(), tint.getFloatAlpha() };
     request->nativeWindow = nativeWindow;
 
     const std::lock_guard<std::mutex> lock (requestLock);
@@ -136,6 +133,20 @@ void RenderEngine::detachSurface (SurfaceId id, std::function<void()> afterRelea
 
     if (afterRelease != nullptr)
         afterRelease();
+}
+
+void RenderEngine::setImage (ImageBank bank, int slot, std::shared_ptr<const DecodedImage> image)
+{
+    auto request = std::make_shared<Request>();
+    request->kind = Request::Kind::image;
+    request->bank = bank;
+    request->slot = slot;
+    request->image = std::move (image);
+
+    const std::lock_guard<std::mutex> lock (requestLock);
+
+    if (loopState != LoopState::stopped)
+        requests.push_back (request);
 }
 
 RenderEngine::Status RenderEngine::getStatus() const
@@ -243,16 +254,11 @@ bool RenderEngine::initialiseGpu()
         return false;
     }
 
-    gpu = std::make_unique<GpuObjects>();
+    compositor = std::make_unique<Compositor>();
 
-    sg_pipeline_desc pipelineDesc {};
-    pipelineDesc.shader = sg_make_shader (testpattern_shader_desc (sg_query_backend()));
-    pipelineDesc.label = "testpattern";
-    gpu->testPattern = sg_make_pipeline (&pipelineDesc);
-
-    if (sg_query_pipeline_state (gpu->testPattern) != SG_RESOURCESTATE_VALID)
+    if (! compositor->initialise (error))
     {
-        setError ("test-pattern pipeline failed (see log)");
+        setError ("compositor: " + juce::String (error));
         shutdownGpu();
         return false;
     }
@@ -266,7 +272,7 @@ bool RenderEngine::initialiseGpu()
 
 void RenderEngine::shutdownGpu()
 {
-    gpu.reset();        // sokol resources die with sg_shutdown()
+    compositor.reset();     // its sokol resources die with sg_shutdown()
 
     if (sg_isvalid())
         sg_shutdown();
@@ -288,7 +294,11 @@ void RenderEngine::applyRequests()
 
     for (auto& request : pending)
     {
-        if (request->kind == Request::Kind::attach)
+        if (request->kind == Request::Kind::image)
+        {
+            compositor->setImage (request->bank, request->slot, request->image.get());
+        }
+        else if (request->kind == Request::Kind::attach)
         {
             std::string error;
             auto swapchain = backend->createSwapchain (request->nativeWindow, error);
@@ -302,7 +312,6 @@ void RenderEngine::applyRequests()
             auto surface = std::make_unique<Surface>();
             surface->id = request->id;
             surface->role = request->role;
-            surface->tint = request->tint;
             surface->swapchain = std::move (swapchain);
             surfaces.push_back (std::move (surface));
 
@@ -324,32 +333,49 @@ void RenderEngine::applyRequests()
 
 bool RenderEngine::renderFrame (double timeSeconds)
 {
+    // The picture is rendered once, at the output window's size (its aspect
+    // is GEM's), then shown in every window. Without an output window it is
+    // rendered at a nominal 1280×720 for the previews.
     std::vector<Surface*> drawn;
+    int outputWidth = 0;
+    int outputHeight = 0;
 
     for (auto& surface : surfaces)
     {
         if (! surface->swapchain->prepare())
             continue;
 
+        drawn.push_back (surface.get());
+
+        if (surface->role == SurfaceRole::output && outputWidth == 0)
+        {
+            const auto description = surface->swapchain->describe();
+            outputWidth = description.width;
+            outputHeight = description.height;
+        }
+    }
+
+    if (outputWidth == 0)
+    {
+        outputWidth = 1280;
+        outputHeight = 720;
+    }
+
+    compositor->renderFrame (params.snapshot(), params.compat, timeSeconds * 1000.0, outputWidth, outputHeight);
+
+    for (auto* surface : drawn)
+    {
+        const auto description = surface->swapchain->describe();
+
         sg_pass pass {};
         pass.action.colors[0].load_action = SG_LOADACTION_CLEAR;
         pass.action.colors[0].clear_value = { 0.0f, 0.0f, 0.0f, 1.0f };
-        pass.swapchain = surface->swapchain->describe();
+        pass.swapchain = description;
         pass.label = surface->role == SurfaceRole::output ? "output" : "preview";
 
         sg_begin_pass (&pass);
-        sg_apply_pipeline (gpu->testPattern);
-
-        fs_params_t params {};
-        params.params[0] = static_cast<float> (timeSeconds);
-        params.params[1] = 15.0f;   // ≈ the reference frames' band count (PD114-ANALYSIS §1)
-        std::copy (surface->tint.begin(), surface->tint.end(), params.tint);
-        sg_apply_uniforms (UB_fs_params, SG_RANGE (params));
-
-        sg_draw (0, 3, 1);
+        compositor->drawToWindow (description.width, description.height);
         sg_end_pass();
-
-        drawn.push_back (surface.get());
     }
 
     sg_commit();

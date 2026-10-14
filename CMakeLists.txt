@@ -65,11 +65,32 @@ if(WIN32)
     target_link_libraries(pixo_sokol PUBLIC d3d11 dxgi)
 endif()
 
+# Pure C++ core, no JUCE: parameters, the Tx formulas, GEM space, Pd line
+# ramps, preset files. Shared by the app and the unit tests.
+add_library(pixo_core STATIC
+    Source/Core/GemSpace.cpp
+    Source/Core/Params.cpp
+    Source/Core/PresetFile.cpp
+    Source/Core/TxMapping.cpp)
+target_include_directories(pixo_core PUBLIC Source)
+if(MSVC)
+    target_compile_options(pixo_core PRIVATE /W4 /utf-8)
+endif()
+
+enable_testing()
+add_executable(pixo_core_tests tests/CoreTests.cpp)
+target_link_libraries(pixo_core_tests PRIVATE pixo_core)
+if(MSVC)
+    target_compile_options(pixo_core_tests PRIVATE /W4 /utf-8)
+endif()
+add_test(NAME core COMMAND pixo_core_tests)
+
 # ---------------------------------------------------------------------------
 # Shaders — compiled by sokol-shdc at build time into C headers under
 # <build>/compile_shaders/Source/..., included as "Render/shaders/<name>.glsl.h".
 # ---------------------------------------------------------------------------
 set(PIXO_SHADERS
+    Source/Render/shaders/gem.glsl
     Source/Render/shaders/testpattern.glsl)
 
 set(PIXO_SHADER_HEADERS)
@@ -93,8 +114,12 @@ target_sources(LePixophone PRIVATE
     Source/Main.cpp
     Source/App/ControlWindow.cpp
     Source/App/OutputWindow.cpp
+    Source/Media/MediaLibrary.cpp
+    Source/Render/Compositor.cpp
     Source/Render/GpuSurfaceComponent.cpp
     Source/Render/RenderEngine.cpp
+    Source/UI/MediaPanel.cpp
+    Source/UI/ParameterPanel.cpp
     ${PIXO_SHADER_HEADERS})
 
 if(WIN32)
@@ -114,6 +139,7 @@ target_compile_definitions(LePixophone PRIVATE
 
 target_link_libraries(LePixophone
     PRIVATE
+        pixo_core
         pixo_sokol
         juce::juce_gui_basics
     PUBLIC

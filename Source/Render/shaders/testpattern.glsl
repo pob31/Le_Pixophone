@@ -14,7 +14,7 @@ void main() {
 @end
 
 @fs fs
-layout(binding=0) uniform fs_params {
+layout(binding=0) uniform pattern_params {
     vec4 params;    // x: time in seconds, y: band cycles per picture height, zw: unused
     vec4 tint;      // rgb: surface tint, a: unused
 };
