@@ -33,7 +33,7 @@ reproducible visual checks.
 
 ## Where things are decided
 
-- `Documentation/PIXOPHONE-PLAN.md` — decision records (D1–D24; **D25 is the
+- `Documentation/PIXOPHONE-PLAN.md` — decision records (D1–D25; **D26 is the
   next free number**), architecture and source layout, phases P0–P5, research
   topics R1–R5, known issues, next steps. It wins over anything else here.
 - `Documentation/PD114-ANALYSIS.md` — reverse-engineered spec of the original:

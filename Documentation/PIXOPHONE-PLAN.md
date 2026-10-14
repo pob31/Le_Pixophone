@@ -6,7 +6,7 @@ decided, the architecture, and the order of work.
 
 ## Decision records
 
-Numbered D1…; D25 is the next free number. A decision is changed by adding a
+Numbered D1…; D26 is the next free number. A decision is changed by adding a
 new record that supersedes it, not by editing the old one.
 
 | # | Decision | Why |
@@ -35,6 +35,7 @@ new record that supersedes it, not by editing the old one.
 | D22 | **Hardware acceleration on the high-performance GPU.** The device is created on the adapter Windows ranks first for performance (`DXGI_GPU_PREFERENCE_HIGH_PERFORMANCE`: the discrete GPU on hybrid laptops), falling back to the default adapter. Video paths should stay on the GPU where the hardware allows (e.g. hardware camera-stream decoding, P2). A manual adapter choice comes later (R4). | Author: "the app will use video hardware acceleration". Measured on the dev laptop: the NVIDIA RTX PRO 2000 renders at 60 fps, presenting through the Intel-driven internal display; device start-up takes ≈ 2.4 s while the discrete GPU wakes. |
 | D23 | **Render once, show everywhere.** The `Compositor` renders each frame into an offscreen composite at the output window's size, whose aspect drives GEM's projection. Every window (output, previews) then blits that composite, letterboxed. Layers render into their own buffers first (MIX: 1024², as `gemframebuffer`). | The preview is exactly what the projector shows, and the picture is rendered only once whatever the number of windows. |
 | D24 | **Pure core + tests; scriptable start.** Logic that is pure maths lives in `Source/Core/` (no JUCE): parameters, the Tx formulas, GEM space, Pd `line` ramps, preset parsing. It is unit-tested against the spec by `pixo_core_tests` (CTest). The media root lives in the settings file (`%APPDATA%\Le Pixophone\Le Pixophone.settings`), with `PIXO_MEDIA_ROOT` as a fallback. `--set key=value` sets any parameter at start-up. | The formulas are where faithfulness is won or lost, so they're tested without a GPU. Scripted starts make visual checks reproducible: P1's blend was verified this way within 1.4/255 of a model of GEM's blending. |
+| D25 | **STRIP panoramas load in one piece.** A strip preset may list one panorama file, or the old four 2048 px parts, which are joined side by side (file order = left to right) into one image while loading. The renderer draws that one texture on one quad of 106.4 × 8 GEM units, the same geometry as the original's four `rectangle 13.303 4` (centre at posH − 39.9), so posH/posZ keep their range and feel and there are no seams. Panoramas are limited by the GPU (`sg_query_limits().max_image_size_2d`, 16384 px on D3D11); wider ones are scaled down to fit at load. | Author: the four-part split only existed because textures were limited to 2048 px. Like the network split (D15), it was a hardware workaround, not a feature. |
 
 ## Architecture (proposed)
 
